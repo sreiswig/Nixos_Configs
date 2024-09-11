@@ -1,1 +1,5 @@
-/etc/nixos/nvidia_gpu.nix
+{ config, lib, pkgs, ... }:
+
+{
+  services.xserver.videoDrivers = [ "nvidia" ];
+}
