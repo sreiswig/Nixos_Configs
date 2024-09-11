@@ -1,0 +1,1 @@
+/etc/nixos/nvidia_gpu.nix
