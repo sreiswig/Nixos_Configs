@@ -161,6 +161,7 @@
     pkgs.home-manager
     pkgs.realvnc-vnc-viewer
     pkgs.vulkan-tools
+    pkgs.lunarvim
   ];
 
   programs.steam = {
