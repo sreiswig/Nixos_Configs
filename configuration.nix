@@ -49,6 +49,9 @@
   # Plasma 6
   services.displayManager.sddm.enable = true;
   services.displayManager.sddm.wayland.enable = true;  
+  
+  # X11
+  services.xserver.enable = true; 
   services.desktopManager.plasma6.enable = true;
 
   # Configure keymap in X11
@@ -69,7 +72,7 @@
     alsa.support32Bit = true;
     pulse.enable = true;
     # If you want to use JACK applications, uncomment this
-    #jack.enable = true;
+    jack.enable = true;
 
     # use the example session manager (no others are packaged yet so this is enabled by default,
     # no need to redefine it in your config for now)
@@ -125,7 +128,6 @@
       firefox
       google-chrome
       kate
-    #  thunderbird
     ];
   };
 
@@ -142,9 +144,9 @@
     pkgs.fprintd
     pkgs.zulip
     pkgs.git
-    pkgs.mdbook
+    pkgs.hugo
+    pkgs.nixfmt-rfc-style
     pkgs.vscode-with-extensions
-    pkgs.distrobox
     pkgs.docker
     pkgs.deja-dup
     pkgs.xwayland
@@ -156,11 +158,13 @@
     pkgs.easyeffects
     pkgs.starship
     pkgs.gh
+    pkgs.devenv
     pkgs.direnv
     pkgs.nix-direnv
     pkgs.home-manager
     pkgs.realvnc-vnc-viewer
     pkgs.vulkan-tools
+    pkgs.conda
     pkgs.lunarvim
   ];
 
@@ -169,9 +173,7 @@
   };
 
   # nerdfonts
-  fonts.packages = with pkgs; [
-    nerdfonts
-  ];
+  fonts.packages = with pkgs; [ nerd-fonts.fira-code ];
 
   # Some programs need SUID wrappers, can be configured further or are
   # started in user sessions.
