@@ -89,7 +89,6 @@
     packages = with pkgs; [
       kdePackages.kate
       git
-      lunarvim
     #  thunderbird
     ];
   };
@@ -106,6 +105,10 @@
   #  vim # Do not forget to add an editor to edit configuration.nix! The Nano editor is also installed by default.
     gnome-disk-utility
     google-chrome
+    lunarvim
+    devenv
+    direnv
+    nix-direnv
   #  wget
   ];
 
