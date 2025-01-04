@@ -141,32 +141,32 @@
   # $ nix search wget
   environment.systemPackages = with pkgs; [
     vim # Do not forget to add an editor to edit configuration.nix! The Nano editor is also installed by default.
-    pkgs.fprintd
-    pkgs.zulip
-    pkgs.git
-    pkgs.hugo
-    pkgs.nixfmt-rfc-style
-    pkgs.vscode-with-extensions
-    pkgs.docker
-    pkgs.deja-dup
-    pkgs.xwayland
-    pkgs.xwaylandvideobridge
-    pkgs.kdePackages.kdeplasma-addons
-    pkgs.kdePackages.kdenlive
+    fprintd
+    zulip
+    git
+    hugo
+    nixfmt-rfc-style
+    vscode-with-extensions
+    docker
+    deja-dup
+    xwayland
+    xwaylandvideobridge
+    kdePackages.kdeplasma-addons
+    kdePackages.kdenlive
     kdePackages.krdc
-    pkgs.obsidian
-    pkgs.neovim
-    pkgs.easyeffects
-    pkgs.starship
-    pkgs.gh
-    pkgs.devenv
-    pkgs.direnv
-    pkgs.nix-direnv
-    pkgs.home-manager
-    pkgs.realvnc-vnc-viewer
-    pkgs.vulkan-tools
-    pkgs.conda
-    pkgs.lunarvim
+    obsidian
+    neovim
+    easyeffects
+    starship
+    gh
+    devenv
+    direnv
+    nix-direnv
+    home-manager
+    realvnc-vnc-viewer
+    vulkan-tools
+    conda
+    lunarvim
   ];
 
   programs.steam = {
