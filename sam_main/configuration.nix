@@ -16,7 +16,7 @@
   boot.loader.systemd-boot.enable = true;
   boot.loader.efi.canTouchEfiVariables = true;
 
-  networking.hostName = "sam_main"; # Define your hostname.
+  networking.hostName = "nixos"; # Define your hostname.
   # networking.wireless.enable = true;  # Enables wireless support via wpa_supplicant.
 
   # Configure network proxy if necessary
@@ -153,6 +153,7 @@
     pkgs.xwaylandvideobridge
     pkgs.kdePackages.kdeplasma-addons
     pkgs.kdePackages.kdenlive
+    kdePackages.krdc
     pkgs.obsidian
     pkgs.neovim
     pkgs.easyeffects
