@@ -109,6 +109,7 @@
     devenv
     direnv
     nix-direnv
+    ollama
   #  wget
   ];
 
