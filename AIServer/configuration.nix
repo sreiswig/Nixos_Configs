@@ -8,7 +8,6 @@
   imports =
     [ # Include the results of the hardware scan.
       ./hardware-configuration.nix
-      ./amd_gpu.nix
     ];
 
   # Bootloader.
@@ -50,6 +49,7 @@
   # Enable the X11 windowing system.
   # You can disable this if you're only using the Wayland session.
   services.xserver.enable = true;
+  services.xserver.videoDrivers = [ "amdgpu" ];
 
   # Enable the KDE Plasma Desktop Environment.
   services.displayManager.sddm.enable = true;
@@ -91,8 +91,12 @@
     packages = with pkgs; [
       kdePackages.kate
       git
+    #  thunderbird
     ];
   };
+
+  # Enable flakes
+  nix.settings.experimental-features = [ "nix-command" "flakes" ];
 
   # Allow unfree packages
   nixpkgs.config.allowUnfree = true;
@@ -100,6 +104,7 @@
   # List packages installed in system profile. To search, run:
   # $ nix search wget
   environment.systemPackages = with pkgs; [
+  #  vim # Do not forget to add an editor to edit configuration.nix! The Nano editor is also installed by default.
     gnome-disk-utility
     google-chrome
     lunarvim
@@ -109,7 +114,7 @@
     ollama-rocm
     clinfo
     rocmPackages.rocm-smi
-    openbao
+  #  wget
   ];
 
   # Some programs need SUID wrappers, can be configured further or are
