@@ -109,6 +109,7 @@
     ollama-rocm
     clinfo
     rocmPackages.rocm-smi
+    openbao
   ];
 
   # Some programs need SUID wrappers, can be configured further or are
