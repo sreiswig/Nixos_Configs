@@ -8,6 +8,7 @@
   imports =
     [ # Include the results of the hardware scan.
       ./hardware-configuration.nix
+      ./amd_gpu.nix
     ];
 
   # Bootloader.
@@ -91,7 +92,6 @@
     packages = with pkgs; [
       kdePackages.kate
       git
-    #  thunderbird
     ];
   };
 
@@ -104,7 +104,6 @@
   # List packages installed in system profile. To search, run:
   # $ nix search wget
   environment.systemPackages = with pkgs; [
-  #  vim # Do not forget to add an editor to edit configuration.nix! The Nano editor is also installed by default.
     gnome-disk-utility
     google-chrome
     lunarvim
@@ -113,8 +112,7 @@
     nix-direnv
     ollama-rocm
     clinfo
-    rocmPackages.rocm-smi
-  #  wget
+    amdgpu_top
   ];
 
   # Some programs need SUID wrappers, can be configured further or are
