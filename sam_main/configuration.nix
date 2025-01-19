@@ -134,6 +134,7 @@
     vulkan-tools
     conda
     lunarvim
+    discord
   ];
 
   programs.steam = {
