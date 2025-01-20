@@ -92,7 +92,6 @@
     description = "Sam";
     extraGroups = [ "networkmanager" "wheel" "docker"];
     packages = with pkgs; [
-      firefox
       google-chrome
       kate
     ];
@@ -107,7 +106,6 @@
   # List packages installed in system profile. To search, run:
   # $ nix search wget
   environment.systemPackages = with pkgs; [
-    vim # Do not forget to add an editor to edit configuration.nix! The Nano editor is also installed by default.
     fprintd
     zulip
     git
@@ -122,7 +120,6 @@
     kdePackages.kdenlive
     kdePackages.krdc
     obsidian
-    neovim
     easyeffects
     starship
     gh
