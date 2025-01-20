@@ -116,13 +116,6 @@
     amdgpu_top
   ];
 
-  services.ollama = {
-    rocmOverrideGfx = "10.3.0";
-    environmentVariables = {
-      OLLAMA_INTEL_GPU = true;
-    };
-  };
-
   # Some programs need SUID wrappers, can be configured further or are
   # started in user sessions.
   # programs.mtr.enable = true;
