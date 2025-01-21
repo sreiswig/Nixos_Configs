@@ -3,6 +3,8 @@
   services.ollama = {
     enable = true;
     acceleration = "rocm";
-    loadModels = [ "phi4" ];
+    environmentVariables = {
+      ENABLE_INTEL_GPU = "true";
+    };
   };
 }
