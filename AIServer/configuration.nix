@@ -112,7 +112,6 @@
     devenv
     direnv
     nix-direnv
-    ollama-rocm
     clinfo
     amdgpu_top
   ];
