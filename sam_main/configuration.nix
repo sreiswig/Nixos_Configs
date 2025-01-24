@@ -127,9 +127,7 @@
     direnv
     nix-direnv
     home-manager
-    realvnc-vnc-viewer
     vulkan-tools
-    conda
     lunarvim
     discord
   ];
