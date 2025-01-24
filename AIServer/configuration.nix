@@ -8,6 +8,7 @@
   imports =
     [ # Include the results of the hardware scan.
       ./hardware-configuration.nix
+#      ./ollama.nix
       ./gpu_configs/amd_gpu.nix
       ./gpu_configs/nvidia_gpu.nix
       ./gpu_configs/intel_gpu.nix
@@ -67,7 +68,7 @@
   services.printing.enable = false;
 
   # Enable sound with pipewire.
-  hardware.pulseaudio.enable = false;
+  services.pulseaudio.enable = false;
   security.rtkit.enable = true;
   services.pipewire = {
     enable = true;
@@ -111,7 +112,6 @@
     devenv
     direnv
     nix-direnv
-    ollama-rocm
     clinfo
     amdgpu_top
   ];

@@ -2,7 +2,11 @@
 {
   services.ollama = {
     enable = true;
-    acceleration = "rocm";
-    loadModels = [ "phi4" ];
+    acceleration = "cuda";
+    environmentVariables = {
+      HCC_AMDGPU_TARGET = "gfx1030";
+      OLLAMA_INTEL_GPU = "true";
+    };
+    rocmOverrideGfx = "10.3.0";
   };
 }
