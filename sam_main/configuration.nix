@@ -120,7 +120,6 @@
     kdePackages.kdenlive
     kdePackages.krdc
     obsidian
-    easyeffects
     starship
     gh
     devenv
