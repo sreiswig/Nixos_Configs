@@ -123,7 +123,6 @@
      direnv
      nix-direnv
      kdePackages.dolphin
-     remmina
      lynx
      conda
      lunarvim
