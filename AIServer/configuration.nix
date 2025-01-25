@@ -93,7 +93,6 @@
     extraGroups = [ "networkmanager" "wheel" ];
     packages = with pkgs; [
       kdePackages.kate
-      git
     ];
   };
 
@@ -106,6 +105,7 @@
   # List packages installed in system profile. To search, run:
   # $ nix search wget
   environment.systemPackages = with pkgs; [
+    git
     gnome-disk-utility
     google-chrome
     lunarvim
