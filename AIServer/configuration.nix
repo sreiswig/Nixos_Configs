@@ -112,8 +112,8 @@
     devenv
     direnv
     nix-direnv
-    clinfo
-    amdgpu_top
+#    clinfo
+#    amdgpu_top
   ];
 
   # Some programs need SUID wrappers, can be configured further or are
