@@ -129,6 +129,8 @@
     vulkan-tools
     lunarvim
     discord
+    lazygit
+    lazydocker
   ];
 
   programs.steam = {
