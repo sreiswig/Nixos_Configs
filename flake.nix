@@ -15,7 +15,7 @@
         modules = [./hosts/framework13];
       };
       # Server
-      aiserver = nixpkgs.lib.nixosSystem {
+      AIServer = nixpkgs.lib.nixosSystem {
         modules = [./hosts/AIServer];
       };
     };

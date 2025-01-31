@@ -9,9 +9,9 @@
     [ # Include the results of the hardware scan.
       ./hardware-configuration.nix
 #      ./ollama.nix
-      ./gpu_configs/amd_gpu.nix
-      ./gpu_configs/nvidia_gpu.nix
-      ./gpu_configs/intel_gpu.nix
+      ../../gpu_configs/amd_gpu.nix
+      ../../gpu_configs/nvidia_gpu.nix
+      ../../gpu_configs/intel_gpu.nix
     ];
 
   # Bootloader.
