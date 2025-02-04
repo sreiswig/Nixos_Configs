@@ -9,9 +9,9 @@
     [ # Include the results of the hardware scan.
       ./hardware-configuration.nix
 #      ./ollama.nix
-      ./gpu_configs/amd_gpu.nix
-      ./gpu_configs/nvidia_gpu.nix
-      ./gpu_configs/intel_gpu.nix
+      ../../gpu_configs/amd_gpu.nix
+      ../../gpu_configs/nvidia_gpu.nix
+      ../../gpu_configs/intel_gpu.nix
     ];
 
   # Bootloader.
@@ -129,7 +129,17 @@
   # List services that you want to enable:
 
   # Enable the OpenSSH daemon.
-  # services.openssh.enable = true;
+  services.openssh = {
+    enable = true;
+    openFirewall = false;
+    settings = {
+      PasswordAuthentication = true;
+      AllowUsers = null;
+      UseDns = false;
+      X11Forwarding = false;
+      PermitRootLogin = "prohibit-password";
+    };
+  };
 
   # Open ports in the firewall.
   networking.firewall.interfaces."enp37s0f1".allowedTCPPorts = [ 3389 22 ];
