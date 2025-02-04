@@ -42,6 +42,8 @@
     LC_TIME = "en_US.UTF-8";
   };
 
+  environment.sessionVariables.NIXOS_OZONE_WL = "1";
+
   # Enable docker
   virtualisation.docker.enable = true;
 
