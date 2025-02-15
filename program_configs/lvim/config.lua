@@ -5,6 +5,8 @@
 -- Discord: https://discord.com/invite/Xb9B4Ny
 --
 lvim.transparent_window = true
+lvim.format_on_save.enabled = true
+
 
 lvim.plugins = {
  {
