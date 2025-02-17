@@ -7,9 +7,9 @@
 lvim.transparent_window = true
 lvim.format_on_save.enabled = true
 
-
 lvim.plugins = {
   {
+    'nicholasmata/nvim-dap-cs',
     'mfussenegger/nvim-dap-python',
     'nvim-neotest/neotest',
     'nvim-neotest/neotest-python',
@@ -29,3 +29,6 @@ lvim.plugins = {
     }
   },
 }
+
+require('dap-cs').setup()
+require('dap-python').setup()
