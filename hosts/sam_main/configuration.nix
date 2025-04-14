@@ -65,7 +65,7 @@
   services.printing.enable = true;
 
   # Enable sound with pipewire.
-  hardware.pulseaudio.enable = false;
+  services.pulseaudio.enable = false;
   security.rtkit.enable = true;
   services.pipewire = {
     enable = true;
@@ -93,7 +93,7 @@
     extraGroups = [ "networkmanager" "wheel" "docker"];
     packages = with pkgs; [
       google-chrome
-      kate
+      kdePackages.kate
     ];
   };
 
@@ -111,17 +111,21 @@
     git
     hugo
     nixfmt-rfc-style
-    vscode-with-extensions
+    vscode-fhs
     docker
     deja-dup
+    (dyalog.override {acceptLicense = true;})
+    ride
     xwayland
-    xwaylandvideobridge
+    kdePackages.xwaylandvideobridge
     kdePackages.kdeplasma-addons
     kdePackages.kdenlive
     kdePackages.krdc
     obsidian
     starship
     gh
+    gnupg
+    gopass
     devenv
     direnv
     nix-direnv
@@ -131,6 +135,8 @@
     discord
     lazygit
     lazydocker
+    unityhub
+    zoxide
   ];
 
   programs.steam = {
