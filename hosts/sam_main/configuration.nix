@@ -2,16 +2,21 @@
 # your system.  Help is available in the configuration.nix(5) man page
 # and in the NixOS manual (accessible by running ‘nixos-help’).
 
-{ config, lib, pkgs, ... }:
+{
+  config,
+  lib,
+  pkgs,
+  ...
+}:
 
 {
-  imports =
-    [ # Include the results of the hardware scan.
-      ./hardware-configuration.nix
-      ./docker.nix
-      # GPU config in file
-      ./nvidia_gpu.nix
-    ];
+  imports = [
+    # Include the results of the hardware scan.
+    ./hardware-configuration.nix
+    ./docker.nix
+    # GPU config in file
+    ./nvidia_gpu.nix
+  ];
 
   # Bootloader.
   boot.loader.systemd-boot.enable = true;
@@ -49,10 +54,10 @@
 
   # Plasma 6
   services.displayManager.sddm.enable = true;
-  services.displayManager.sddm.wayland.enable = true;  
-  
+  services.displayManager.sddm.wayland.enable = true;
+
   # X11
-  services.xserver.enable = true; 
+  services.xserver.enable = true;
   services.desktopManager.plasma6.enable = true;
 
   # Configure keymap in X11
@@ -79,7 +84,7 @@
     # no need to redefine it in your config for now)
     #media-session.enable = true;
   };
-  
+
   hardware.bluetooth.enable = true; # enables support for Bluetooth
   hardware.bluetooth.powerOnBoot = true; # powers up the default Bluetooth controller on boot
 
@@ -90,7 +95,11 @@
   users.users.sam = {
     isNormalUser = true;
     description = "Sam";
-    extraGroups = [ "networkmanager" "wheel" "docker"];
+    extraGroups = [
+      "networkmanager"
+      "wheel"
+      "docker"
+    ];
     packages = with pkgs; [
       google-chrome
       kdePackages.kate
@@ -98,7 +107,10 @@
   };
 
   # Enable flakes
-  nix.settings.experimental-features = [ "nix-command" "flakes"];
+  nix.settings.experimental-features = [
+    "nix-command"
+    "flakes"
+  ];
 
   # Allow unfree packages
   nixpkgs.config.allowUnfree = true;
@@ -114,7 +126,7 @@
     vscode-fhs
     docker
     deja-dup
-    (dyalog.override {acceptLicense = true;})
+    (dyalog.override { acceptLicense = true; })
     ride
     xwayland
     kdePackages.xwaylandvideobridge
