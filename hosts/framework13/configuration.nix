@@ -130,6 +130,7 @@
      discord
      lazygit
      lazydocker
+     zoxide
   ];
 
   # nerdfonts
