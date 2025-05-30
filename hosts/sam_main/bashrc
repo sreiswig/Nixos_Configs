@@ -1,0 +1,6 @@
+eval "$(starship init bash)"
+eval "$(zoxide init bash)"
+eval "$(direnv hook bash)"
+source <(gopass completion bash)
+alias sl='ls'
+
