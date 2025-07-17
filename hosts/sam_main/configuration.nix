@@ -107,7 +107,9 @@
   # $ nix search wget
   environment.systemPackages = with pkgs; [
     btop-cuda
+    blender
     mermaid-cli
+    mlflow-server
     fprintd
     zulip
     git
@@ -124,6 +126,7 @@
     kdePackages.kdenlive
     kdePackages.krdc
     kdePackages.krohnkite
+    kdePackages.partitionmanager
     obsidian
     obs-studio
     starship
@@ -139,7 +142,8 @@
     discord
     lazygit
     lazydocker
-    unityhub
+    impala
+    fastfetch
     zoxide
   ];
 
