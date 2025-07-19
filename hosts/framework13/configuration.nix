@@ -42,6 +42,8 @@
     LC_TIME = "en_US.UTF-8";
   };
 
+  environment.sessionVariables.NIXOS_OZONE_WL = "1";
+
   # Enable docker
   virtualisation.docker.enable = true;
 
@@ -112,6 +114,7 @@
      kdePackages.konsole
      git
      gh
+     gopass
      hugo
      vscode-fhs
      docker
@@ -121,6 +124,7 @@
      direnv
      nix-direnv
      kdePackages.dolphin
+     kdePackages.krohnkite
      lynx
      conda
      lunarvim
@@ -128,10 +132,14 @@
      discord
      lazygit
      lazydocker
+     kdePackages.qtwayland
+     zoxide
   ];
 
   # nerdfonts
   fonts.packages = with pkgs; [ nerd-fonts.fira-code ];
+
+  environment.variables.EDITOR = "lvim";
 
   # Some programs need SUID wrappers, can be configured further or are
   # started in user sessions.
