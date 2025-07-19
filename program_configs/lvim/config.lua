@@ -4,12 +4,14 @@
 -- Forum: https://www.reddit.com/r/lunarvim/
 -- Discord: https://discord.com/invite/Xb9B4Ny
 --
+local dap = require('dap')
+
 lvim.transparent_window = true
 lvim.format_on_save.enabled = true
+lvim.builtin.indentlines.active = false
 
 lvim.plugins = {
   {
-    'nicholasmata/nvim-dap-cs',
     'mfussenegger/nvim-dap-python',
     'nvim-neotest/neotest',
     'nvim-neotest/neotest-python',
@@ -30,5 +32,21 @@ lvim.plugins = {
   },
 }
 
-require('dap-cs').setup()
+dap.adapters.coreclr = {
+  type = 'executable',
+  command = '/nix/store/6k089v1ldj3sc522s858hjkzvqdm6xx6-netcoredbg-3.1.0-1031/bin/netcoredbg',
+  args = { '--interpreter=vscode' }
+}
+
+dap.configurations.cs = {
+  {
+    type = "coreclr",
+    name = "launch - netcoredbg",
+    request = "launch",
+    program = function()
+      return vim.fn.input('Path to dll', vim.fn.getcwd() .. '/bin/Debug/', 'file')
+    end,
+  },
+}
+
 require('dap-python').setup()
