@@ -21,6 +21,7 @@
 
   networking.hostName = "AI_Server"; # Define your hostname.
   # networking.wireless.enable = true;  # Enables wireless support via wpa_supplicant.
+  # networking.wireless.userControlled.enable = true; # Enables use of wpa_gui and wpa_cli
 
   # Configure network proxy if necessary
   # networking.proxy.default = "http://user:password@proxy:port/";
@@ -112,6 +113,10 @@
     devenv
     direnv
     nix-direnv
+    lazygit
+    lazydocker
+    btop
+    fastfetch
 #    clinfo
 #    amdgpu_top
   ];
