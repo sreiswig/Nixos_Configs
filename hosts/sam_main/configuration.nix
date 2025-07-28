@@ -144,6 +144,7 @@
     lazydocker
     impala
     fastfetch
+    yazi
     zoxide
   ];
 
