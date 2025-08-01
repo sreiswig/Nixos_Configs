@@ -119,6 +119,7 @@
     nixfmt-rfc-style
     vscode-fhs
     docker
+    minikube
     deja-dup
     (dyalog.override {acceptLicense = true;})
     ride
