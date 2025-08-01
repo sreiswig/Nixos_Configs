@@ -133,6 +133,7 @@
     obsidian
     obs-studio
     starship
+    eza
     gh
     gnupg
     gopass
