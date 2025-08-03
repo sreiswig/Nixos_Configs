@@ -134,6 +134,7 @@
     obs-studio
     starship
     eza
+    ripgrep
     gh
     gnupg
     gopass
