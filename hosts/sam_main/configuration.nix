@@ -130,12 +130,17 @@
     kdePackages.krdc
     kdePackages.krohnkite
     kdePackages.partitionmanager
+    kdePackages.ksystemlog
+    kdePackages.sddm-kcm
+    wayland-utils
+    wl-clipboard
     obsidian
     obs-studio
     starship
     eza
     ripgrep
     gh
+    gimp
     gnupg
     gopass
     devenv
