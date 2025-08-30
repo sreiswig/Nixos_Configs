@@ -110,6 +110,7 @@
   environment.systemPackages = with pkgs; [
     btop-cuda
     blender
+    bloodhound
     mermaid-cli
     mlflow-server
     fprintd
