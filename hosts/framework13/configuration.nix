@@ -118,6 +118,7 @@
      hugo
      vscode-fhs
      docker
+     steam
      starship
      obsidian
      devenv
