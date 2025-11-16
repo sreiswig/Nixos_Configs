@@ -6,7 +6,8 @@
   lib,
   pkgs,
   ...
-}: {
+}:
+{
   imports = [
     # Include the results of the hardware scan.
     ./hardware-configuration.nix
@@ -92,7 +93,11 @@
   users.users.sam = {
     isNormalUser = true;
     description = "Sam";
-    extraGroups = ["networkmanager" "wheel" "docker"];
+    extraGroups = [
+      "networkmanager"
+      "wheel"
+      "docker"
+    ];
     packages = with pkgs; [
       google-chrome
       kdePackages.kate
@@ -100,7 +105,10 @@
   };
 
   # Enable flakes
-  nix.settings.experimental-features = ["nix-command" "flakes"];
+  nix.settings.experimental-features = [
+    "nix-command"
+    "flakes"
+  ];
 
   # Allow unfree packages
   nixpkgs.config.allowUnfree = true;
@@ -112,7 +120,6 @@
     blender
     bloodhound
     mermaid-cli
-    mlflow-server
     fprintd
     zulip
     git
@@ -122,10 +129,9 @@
     docker
     minikube
     deja-dup
-    (dyalog.override {acceptLicense = true;})
+    (dyalog.override { acceptLicense = true; })
     ride
     xwayland
-    kdePackages.xwaylandvideobridge
     kdePackages.kdeplasma-addons
     kdePackages.kdenlive
     kdePackages.krdc
@@ -165,7 +171,7 @@
   };
 
   # nerdfonts
-  fonts.packages = with pkgs; [nerd-fonts.fira-code];
+  fonts.packages = with pkgs; [ nerd-fonts.fira-code ];
 
   environment.variables.EDITOR = "lvim";
 
