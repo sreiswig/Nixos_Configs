@@ -110,6 +110,8 @@
   # $ nix search wget
   environment.systemPackages = with pkgs; [
      fprintd
+     btop
+     yazi
      zulip
      kdePackages.konsole
      git
