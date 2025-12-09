@@ -5,10 +5,9 @@
     home-manager.url = "github:nix-community/home-manager";
   };
 
-  outputs = { self, nixpkgs, overlays, home-manager, ... }@inputs: let
+  outputs = { self, nixpkgs, home-manager, ... }@inputs: let
     # Collect overlay functions from the overlays flake
-    overlayFns = [ overlays.overlays.antigravity ];
-    mkPkgs = system: import nixpkgs { inherit system; overlays = overlayFns; };
+    mkPkgs = system: import nixpkgs { inherit system; };
   in {
     nixosConfigurations = {
       # Main
@@ -32,8 +31,5 @@
         specialArgs = { inherit home-manager; };
       };
     };
-
-    # Re-export overlays so other flakes can depend on them easily
-    overlays = overlays.overlays;
   };
 }
