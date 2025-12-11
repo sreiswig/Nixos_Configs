@@ -53,7 +53,6 @@
   # Enable the Plasma6 Desktop Environment.
   services.displayManager.sddm = {
     enable = true;
-    theme = "catppuccin-mocha";
     wayland.enable = true;
   };
   services.desktopManager.plasma6.enable = true;
@@ -113,6 +112,8 @@
      btop
      yazi
      zulip
+     cbmc
+     tailscale
      kdePackages.konsole
      git
      gh
@@ -136,8 +137,14 @@
      lazygit
      lazydocker
      kdePackages.qtwayland
+     zellij
      zoxide
+     zoom-us
   ];
+
+  programs.steam = {
+    enable = true;
+  };
 
   # nerdfonts
   fonts.packages = with pkgs; [ nerd-fonts.fira-code ];
