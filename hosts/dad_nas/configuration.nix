@@ -5,14 +5,18 @@
 { config, pkgs, ... }:
 
 {
-  imports =
-    [ # Include the results of the hardware scan.
-      ./hardware-configuration.nix
-    ];
+  imports = [
+    # Include the results of the hardware scan.
+    ./hardware-configuration.nix
+  ];
 
   # Bootloader.
   boot.loader.systemd-boot.enable = true;
   boot.loader.efi.canTouchEfiVariables = true;
+  boot.kernelModules = [
+    "udf"
+    "isofs"
+  ]; # For DVD / CD file systems
 
   networking.hostName = "queennas"; # Define your hostname.
   # networking.wireless.enable = true;  # Enables wireless support via wpa_supplicant.
@@ -66,6 +70,9 @@
   services.xrdp.enable = true;
   services.xrdp.defaultWindowManager = "startplasma-x11";
 
+  # Enable auto-mounting daemon
+  services.udisks2.enable = true;
+
   # Enable Jellyfin
   services.jellyfin = {
     enable = true;
@@ -103,10 +110,14 @@
   users.users.sundevil45 = {
     isNormalUser = true;
     description = "QueenNAS";
-    extraGroups = [ "networkmanager" "wheel" ];
+    extraGroups = [
+      "networkmanager"
+      "wheel"
+      "cdrom"
+    ];
     packages = with pkgs; [
       kdePackages.kate
-    #  thunderbird
+      #  thunderbird
     ];
   };
 
@@ -114,7 +125,11 @@
   users.users.sam = {
     isNormalUser = true;
     home = "/home/sam";
-    extraGroups = [ "networkmanager" "wheel" ];
+    extraGroups = [
+      "networkmanager"
+      "wheel"
+      "cdrom"
+    ];
     packages = with pkgs; [
       lunarvim
     ];
@@ -133,6 +148,10 @@
     jellyfin-web
     jellyfin-ffmpeg
     vlc
+    libdvdcss
+    libdvdread
+    libdvdnav
+    cdparanoia
   ];
 
   # Some programs need SUID wrappers, can be configured further or are
@@ -149,7 +168,10 @@
   # services.openssh.enable = true;
 
   # Open ports in the firewall.
-  networking.firewall.allowedTCPPorts = [ 22 3389 ];
+  networking.firewall.allowedTCPPorts = [
+    22
+    3389
+  ];
   # networking.firewall.allowedUDPPorts = [ ... ];
   # Or disable the firewall altogether.
   # networking.firewall.enable = false;
