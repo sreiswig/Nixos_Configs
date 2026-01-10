@@ -90,7 +90,7 @@
     enable = true;
     virtualHosts = {
       "n8n.tail93ec7d.ts.net" = {
-        extraConfig = "reverse_proxy 127.0.0.1:5678";
+        extraConfig = "reverse_proxy 127.0.0.1:5678 {header_up X-Forwarded-Proto {scheme}}";
       };
       "jellyfin.tail93ec7d.ts.net" = {
         extraConfig = "reverse_proxy 100.74.70.2:8096";
@@ -108,6 +108,10 @@
 
   # Manually inject environment variables into the n8n systemd service
   systemd.services.n8n.serviceConfig.Environment = [
+    "N8N_PROTOCOL = https"
+    "N8N_HOST = n8n.tail93ec7d.ts.net"
+    "WEBHOOK_URL = https://n8n.tail93ec7d.ts.net/"
+    "N8N_SECURE_COOKIE = true"
     "N8N_LISTEN_ADDRESS=0.0.0.0"
     "N8N_PORT=5678"
   ];
