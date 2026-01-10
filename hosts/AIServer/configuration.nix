@@ -8,7 +8,8 @@
   imports =
     [ # Include the results of the hardware scan.
       ./hardware-configuration.nix
-#      ./ollama.nix
+      ./docker.nix
+      ./ollama.nix
       ./gpu_configs/amd_gpu.nix
       ./gpu_configs/nvidia_gpu.nix
       ./gpu_configs/intel_gpu.nix
@@ -84,6 +85,38 @@
     #media-session.enable = true;
   };
 
+  # Caddy
+  services.caddy = {
+    enable = true;
+    virtualHosts = {
+      "n8n.tail93ec7d.ts.net" = {
+        extraConfig = "reverse_proxy 127.0.0.1:5678";
+      };
+      "jellyfin.tail93ec7d.ts.net" = {
+        extraConfig = "reverse_proxy 100.74.70.2:8096";
+      };
+      "immich.tail93ec7d.ts.net" = {
+        extraConfig = "reverse_proxy 100.74.70.2:1112";
+      };
+    };
+  };
+
+  # Enable n8n
+  services.n8n = {
+    enable = true;
+  };
+
+  # Manually inject environment variables into the n8n systemd service
+  systemd.services.n8n.serviceConfig.Environment = [
+    "N8N_LISTEN_ADDRESS=0.0.0.0"
+    "N8N_PORT=5678"
+  ];
+
+  # Enable tailscale
+  services.tailscale.enable = true;
+  services.tailscale.permitCertUid = "caddy";
+
+
   # Enable touchpad support (enabled default in most desktopManager).
   # services.xserver.libinput.enable = true;
 
@@ -117,6 +150,7 @@
     lazydocker
     btop
     fastfetch
+    zoxide
 #    clinfo
 #    amdgpu_top
   ];
@@ -147,8 +181,8 @@
   };
 
   # Open ports in the firewall.
-  networking.firewall.interfaces."enp37s0f1".allowedTCPPorts = [ 3389 22 8000 ];
-  # networking.firewall.allowedTCPPorts = [ ... ];
+  networking.firewall.interfaces."enp37s0f1np1".allowedTCPPorts = [ 3389 22 8000 ];
+  networking.firewall.trustedInterfaces = [ "tailscale0" ];
   # networking.firewall.allowedUDPPorts = [ ... ];
   # Or disable the firewall altogether.
   # networking.firewall.enable = false;
