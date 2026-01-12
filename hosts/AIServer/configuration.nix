@@ -2,7 +2,7 @@
 # your system.  Help is available in the configuration.nix(5) man page
 # and in the NixOS manual (accessible by running ‘nixos-help’).
 
-{ config, pkgs, ... }:
+{ config, pkgs, lib, ... }:
 
 {
   imports =
@@ -89,14 +89,17 @@
   services.caddy = {
     enable = true;
     virtualHosts = {
-      "n8n.tail93ec7d.ts.net" = {
-        extraConfig = "reverse_proxy 127.0.0.1:5678 {header_up X-Forwarded-Proto {scheme}}";
+      "aiserver.tail93ec7d.ts.net" = {
+        extraConfig = "reverse_proxy 127.0.0.1:5678";
       };
       "jellyfin.tail93ec7d.ts.net" = {
         extraConfig = "reverse_proxy 100.74.70.2:8096";
       };
       "immich.tail93ec7d.ts.net" = {
         extraConfig = "reverse_proxy 100.74.70.2:1112";
+      };
+      "aiserver.tail93ec7d.ts.net/git/" = {
+        extraConfig = "reverse_proxy 127.0.0.1:3001";
       };
     };
   };
@@ -106,20 +109,32 @@
     enable = true;
   };
 
-  # Manually inject environment variables into the n8n systemd service
-  systemd.services.n8n.serviceConfig.Environment = [
-    "N8N_PROTOCOL = https"
-    "N8N_HOST = n8n.tail93ec7d.ts.net"
-    "WEBHOOK_URL = https://n8n.tail93ec7d.ts.net/"
-    "N8N_SECURE_COOKIE = true"
-    "N8N_LISTEN_ADDRESS=0.0.0.0"
-    "N8N_PORT=5678"
-  ];
+  systemd.services.n8n.environment = {
+    N8N_PROTOCOL = "https";
+    N8N_HOST = "aiserver.tail93ec7d.ts.net";
+    N8N_SECURE_COOKIE = "true";
+    # mkForce is required because the n8n module defines an internal default for this
+    WEBHOOK_URL = lib.mkForce "https://aiserver.tail93ec7d.ts.net";
+  };
 
   # Enable tailscale
   services.tailscale.enable = true;
   services.tailscale.permitCertUid = "caddy";
 
+  services.gitea = {
+    enable = true;
+    appName = "AIServer Code Hub";
+    database.type = "sqlite3";
+
+    settings.server = {
+      DOMAIN = "aiserver.tail93ec7d.ts.net";
+      ROOT_URL = "https://aiserver.tail93ec7d.ts.net/git/";
+      HTTP_ADDR = "127.0.0.1";
+      HTTP_PORT = 3001;
+    };
+
+    settings.service.DISABLE_REGISTRATION = true;
+  };
 
   # Enable touchpad support (enabled default in most desktopManager).
   # services.xserver.libinput.enable = true;
