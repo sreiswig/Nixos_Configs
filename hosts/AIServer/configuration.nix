@@ -98,6 +98,11 @@
           handle_path /git* {
             reverse_proxy 127.0.0.1:3001
           }
+
+          # Proxy for Ollama
+          handle_path /ollama* {
+            reverse_proxy 127.0.0.1:11434
+          }
         '';
       };
       "queennas.tail93ec7d.ts.net" = {
