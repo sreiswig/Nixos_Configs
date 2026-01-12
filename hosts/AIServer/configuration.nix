@@ -90,16 +90,21 @@
     enable = true;
     virtualHosts = {
       "aiserver.tail93ec7d.ts.net" = {
-        extraConfig = "reverse_proxy 127.0.0.1:5678";
+        extraConfig = ''
+          # Proxy for n8n
+          reverse_proxy 127.0.0.1:5678
+
+          # Proxy for Gitea
+          handle_path /git* {
+            reverse_proxy 127.0.0.1:3001
+          }
+        '';
       };
-      "jellyfin.tail93ec7d.ts.net" = {
+      "queennas.tail93ec7d.ts.net" = {
         extraConfig = "reverse_proxy 100.74.70.2:8096";
       };
       "immich.tail93ec7d.ts.net" = {
         extraConfig = "reverse_proxy 100.74.70.2:1112";
-      };
-      "aiserver.tail93ec7d.ts.net/git/" = {
-        extraConfig = "reverse_proxy 127.0.0.1:3001";
       };
     };
   };
