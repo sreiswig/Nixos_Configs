@@ -117,6 +117,13 @@
   # Enable n8n
   services.n8n = {
     enable = true;
+    # Pin n8n to unstable to get v2+ and fix CVE-2025-68668
+    package = (import (builtins.fetchTarball {
+      url = "https://github.com/nixos/nixpkgs/archive/nixos-unstable.tar.gz";
+      # It is recommended to pin a specific commit hash for reproducibility, 
+      # but using the channel URL ensures getting the absolutely latest version 
+      # which is what we want for immediate security fixes.
+    }) { inherit (pkgs) system; }).n8n;
   };
 
   systemd.services.n8n.environment = {
