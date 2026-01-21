@@ -127,7 +127,10 @@
         # TODO: Run 'sudo nixos-rebuild switch', it will fail with "got: sha256-..."
         # Copy that hash and replace the zeros below.
         sha256 = "0hx09ar14njl4vgarsy79vlykwswg7rbxak7c7qm1n8r0szy6r0b";
-      }) { inherit (final) system; }).n8n;
+      }) {
+        inherit (final) system;
+        config.allowUnfree = true;
+      }).n8n;
     })
   ];
 
