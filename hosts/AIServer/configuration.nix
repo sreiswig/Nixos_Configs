@@ -117,14 +117,19 @@
   # Enable n8n
   services.n8n = {
     enable = true;
-    # Pin n8n to unstable to get v2+ and fix CVE-2025-68668
-    package = (import (builtins.fetchTarball {
-      url = "https://github.com/nixos/nixpkgs/archive/nixos-unstable.tar.gz";
-      # It is recommended to pin a specific commit hash for reproducibility, 
-      # but using the channel URL ensures getting the absolutely latest version 
-      # which is what we want for immediate security fixes.
-    }) { inherit (pkgs) system; }).n8n;
   };
+
+  # Overlay to override n8n with the version from nixos-unstable
+  nixpkgs.overlays = [
+    (final: prev: {
+      n8n = (import (builtins.fetchTarball {
+        url = "https://github.com/nixos/nixpkgs/archive/80e4adbcf8992d3fd27ad4964fbb84907f9478b0.tar.gz";
+        # TODO: Run 'sudo nixos-rebuild switch', it will fail with "got: sha256-..."
+        # Copy that hash and replace the zeros below.
+        sha256 = "0hx09ar14njl4vgarsy79vlykwswg7rbxak7c7qm1n8r0szy6r0b";
+      }) { inherit (final) system; }).n8n;
+    })
+  ];
 
   systemd.services.n8n.environment = {
     N8N_PROTOCOL = "https";
