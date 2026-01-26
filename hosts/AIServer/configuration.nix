@@ -91,9 +91,6 @@
     virtualHosts = {
       "aiserver.tail93ec7d.ts.net" = {
         extraConfig = ''
-          # Proxy for n8n
-          reverse_proxy 127.0.0.1:5678
-
           # Proxy for Gitea
           handle_path /git* {
             reverse_proxy 127.0.0.1:3001
@@ -107,6 +104,11 @@
           # Proxy for Vault
           handle_path /vault* {
             reverse_proxy 127.0.0.1:8200
+          }
+
+          # Proxy for n8n (Default catch-all)
+          handle {
+            reverse_proxy 127.0.0.1:5678
           }
         '';
       };
@@ -128,11 +130,14 @@
         address     = "127.0.0.1:8200"
         tls_disable = 1
       }
+      api_addr = "https://aiserver.tail93ec7d.ts.net/vault"
       storage "file" {
         path = "/var/lib/vault"
       }
     '';
   };
+
+  environment.variables.VAULT_ADDR = "https://aiserver.tail93ec7d.ts.net/vault";
 
   # Enable n8n
   services.n8n = {
