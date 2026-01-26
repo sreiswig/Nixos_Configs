@@ -103,6 +103,11 @@
           handle_path /ollama* {
             reverse_proxy 127.0.0.1:11434
           }
+
+          # Proxy for Vault
+          handle_path /vault* {
+            reverse_proxy 127.0.0.1:8200
+          }
         '';
       };
       "queennas.tail93ec7d.ts.net" = {
@@ -112,6 +117,21 @@
         extraConfig = "reverse_proxy 100.74.70.2:1112";
       };
     };
+  };
+
+  services.vault = {
+    enable = true;
+    package = pkgs.vault;
+    extraConfig = ''
+      ui = true
+      listener "tcp" {
+        address     = "127.0.0.1:8200"
+        tls_disable = 1
+      }
+      storage "file" {
+        path = "/var/lib/vault"
+      }
+    '';
   };
 
   # Enable n8n
@@ -195,6 +215,7 @@
     btop
     fastfetch
     zoxide
+    vault
 #    clinfo
 #    amdgpu_top
   ];
