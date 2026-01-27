@@ -106,6 +106,11 @@
             reverse_proxy 127.0.0.1:8200
           }
 
+          # Vault static assets
+          handle /ui* {
+            reverse_proxy 127.0.0.1:8200
+          }
+
           # Proxy for n8n (Default catch-all)
           handle {
             reverse_proxy 127.0.0.1:5678
@@ -123,16 +128,13 @@
 
   services.vault = {
     enable = true;
-    address = "0.0.0.0:8200";
+    package = pkgs.vault-bin;
+    address = "127.0.0.1:8200";
     storageBackend = "file";
     storagePath = "/var/lib/vault";
-    package = pkgs.vault;
     extraConfig = ''
       ui = true
-      listener "tcp" {
-        address     = "0.0.0.0:8200"
-        tls_disable = 1
-      }
+      api_addr = "https://aiserver.tail93ec7d.ts.net/vault"
     '';
   };
 
