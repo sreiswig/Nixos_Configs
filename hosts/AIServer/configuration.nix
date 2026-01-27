@@ -123,16 +123,15 @@
 
   services.vault = {
     enable = true;
+    address = "0.0.0.0:8200";
+    storageBackend = "file";
+    storagePath = "/var/lib/vault";
     package = pkgs.vault;
     extraConfig = ''
       ui = true
       listener "tcp" {
-        address     = "127.0.0.1:8200"
+        address     = "0.0.0.0:8200"
         tls_disable = 1
-      }
-      api_addr = "https://aiserver.tail93ec7d.ts.net/vault"
-      storage "file" {
-        path = "/var/lib/vault"
       }
     '';
   };
