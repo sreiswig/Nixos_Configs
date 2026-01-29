@@ -112,6 +112,9 @@
           }
         '';
       };
+      "neo4j.tail93ec7d.ts.net" = {
+        extraConfig = "reverse_proxy 127.0.0.1:7474";
+      };
       "queennas.tail93ec7d.ts.net" = {
         extraConfig = "reverse_proxy 100.74.70.2:8096";
       };
@@ -183,6 +186,20 @@
     };
 
     settings.service.DISABLE_REGISTRATION = true;
+  };
+
+  services.neo4j = {
+    enable = true;
+    package = pkgs.neo4j;
+
+    http.listenAddress = "127.0.0.1:7474";
+    bolt.listenAddress = "127.0.0.1:7687";
+
+    extraServerConfig = ''
+      server.memory.heap.initial_size=4G
+      server.memory.heap.max_size=8G
+      server.memory.pagecache.size=2G
+    '';
   };
 
   # Enable touchpad support (enabled default in most desktopManager).
