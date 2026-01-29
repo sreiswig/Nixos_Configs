@@ -1,0 +1,15 @@
+graph LR
+    subgraph "Development Environment"
+        Dev[Dev Machine] -->|git push| Git[(GitHub / Gitea)]
+    end
+
+    subgraph "NixOS Server (Target)"
+        Git -->|nixos-rebuild| Flake[Flake Loader]
+        Flake -->|Evaluates| Config[Nix System Config]
+        Config -->|Generates| Systemd[Systemd Units]
+        Systemd -->|Manages| Docker[Docker Engine]
+        Docker -->|Runs| Cont[Nix-Defined Containers]
+    end
+    
+    style Git fill:#f96,stroke:#333
+    style Flake fill:#3498db,color:#fff

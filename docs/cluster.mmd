@@ -1,0 +1,11 @@
+graph TD
+    Root[flake.nix] --> Common[common-config.nix]
+    Root --> Nodes[nixosConfigurations]
+    
+    Nodes --> T1[Tier-1: R9700 Cluster]
+    Nodes --> T2[Tier-2: Legacy Worker]
+    
+    T1 --> RDNA[ROCm 7.x / RDNA 4 Driver Module]
+    T2 --> Intel[Arc A770 / W6800 Modules]
+    
+    Common --> Docker[Docker/OCI Container Logic]

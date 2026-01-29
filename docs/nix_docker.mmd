@@ -1,0 +1,17 @@
+graph TD
+    subgraph "NixOS Logic"
+        NC[virtualisation.oci-containers] -->|Compiles to| S1[container-app1.service]
+        NC -->|Compiles to| S2[container-app2.service]
+    end
+
+    subgraph "Systemd Layer"
+        S1 -->|ExecStart| D1[docker run --name app1...]
+        S2 -->|ExecStart| D2[docker run --name app2...]
+    end
+
+    subgraph "Runtime Layer"
+        D1 --> C1(Nginx / App)
+        D2 --> C2(Database / Worker)
+    end
+
+    Rel[Health Checks] -.->|Restart on Failure| S1
