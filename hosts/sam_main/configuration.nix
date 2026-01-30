@@ -164,6 +164,7 @@
     yazi
     zellij
     zoxide
+    paperless-ngx
   ];
 
   programs.steam = {
