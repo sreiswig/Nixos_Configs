@@ -6,8 +6,7 @@
   lib,
   pkgs,
   ...
-}:
-{
+}: {
   imports = [
     # Include the results of the hardware scan.
     ./hardware-configuration.nix
@@ -50,6 +49,9 @@
 
   environment.sessionVariables.NIXOS_OZONE_WL = "1";
 
+  # hyprland
+  programs.hyprland.enable = true;
+
   # Plasma 6
   services.displayManager.sddm.enable = true;
   services.displayManager.sddm.wayland.enable = true;
@@ -83,6 +85,12 @@
     #media-session.enable = true;
   };
 
+  # enable tailscale
+  services.tailscale.enable = true;
+
+  # enable waydroid
+  virtualisation.waydroid.enable = true;
+
   hardware.bluetooth.enable = true; # enables support for Bluetooth
   hardware.bluetooth.powerOnBoot = true; # powers up the default Bluetooth controller on boot
 
@@ -93,11 +101,7 @@
   users.users.sam = {
     isNormalUser = true;
     description = "Sam";
-    extraGroups = [
-      "networkmanager"
-      "wheel"
-      "docker"
-    ];
+    extraGroups = ["networkmanager" "wheel" "docker"];
     packages = with pkgs; [
       google-chrome
       kdePackages.kate
@@ -105,10 +109,7 @@
   };
 
   # Enable flakes
-  nix.settings.experimental-features = [
-    "nix-command"
-    "flakes"
-  ];
+  nix.settings.experimental-features = ["nix-command" "flakes"];
 
   # Allow unfree packages
   nixpkgs.config.allowUnfree = true;
@@ -118,19 +119,18 @@
   environment.systemPackages = with pkgs; [
     btop-cuda
     blender
-    bloodhound
     mermaid-cli
     fprintd
     zulip
     git
     hugo
+    kitty
     nixfmt-rfc-style
     vscode-fhs
+    antigravity-fhs
     docker
     minikube
     deja-dup
-    (dyalog.override { acceptLicense = true; })
-    ride
     xwayland
     kdePackages.kdeplasma-addons
     kdePackages.kdenlive
@@ -159,20 +159,38 @@
     discord
     lazygit
     lazydocker
+    lazyssh
     impala
     fastfetch
     yazi
     zellij
     zoxide
-    paperless-ngx
+    tailscale
+    prismlauncher
+    (retroarch.withCores (cores: with cores; [
+      vba-m
+    ]))
+    archipelago
   ];
 
   programs.steam = {
     enable = true;
   };
 
+  # Automatic cleanup
+  nix.gc = {
+    automatic = true;
+    randomizedDelaySec = "14m";
+    options = "--delete-older-than 10d";
+  };
+
   # nerdfonts
-  fonts.packages = with pkgs; [ nerd-fonts.fira-code ];
+  fonts.packages = with pkgs; [
+    nerd-fonts.fira-code
+    noto-fonts-cjk-sans
+    noto-fonts-cjk-serif
+  ];
+  fonts.fontconfig.enable = true;
 
   environment.variables.EDITOR = "lvim";
 
