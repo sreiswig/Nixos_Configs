@@ -117,7 +117,7 @@
           }
         '';
       };
-      "neo4j.tail93ec7d.ts.net" = {
+      "aiserver.tail93ec7d.ts.net" = {
         extraConfig = "reverse_proxy 127.0.0.1:7474";
       };
       "queennas.tail93ec7d.ts.net" = {
@@ -195,12 +195,13 @@
     package = pkgs.neo4j;
 
     http.listenAddress = "127.0.0.1:7474";
-    bolt.listenAddress = "127.0.0.1:7687";
+    bolt.listenAddress = "0.0.0.0:7687";
 
     extraServerConfig = ''
       server.memory.heap.initial_size=4G
       server.memory.heap.max_size=8G
       server.memory.pagecache.size=2G
+      dbms.connector.bolt.listen_address=0.0.0.0:7687
     '';
   };
 
