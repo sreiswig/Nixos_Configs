@@ -173,7 +173,6 @@
     archipelago
     github-copilot-cli
     gemini-cli
-    antigravity
   ];
 
   programs.steam = {
