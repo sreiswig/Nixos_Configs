@@ -171,6 +171,7 @@
       vba-m
     ]))
     archipelago
+    github-copilot-cli
   ];
 
   programs.steam = {
