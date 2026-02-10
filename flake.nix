@@ -43,6 +43,18 @@
         AIServer = mkHost {
           hostname = "AIServer";
         };
+
+        asus_rog_1070 = mkHost {
+          hostname = "asus_rog_1070";
+        };
+
+        dad_nas = mkHost {
+          hostname = "dad_nas";
+        };
+
+        sam_old_laptop = mkHost {
+          hostname = "sam_old_laptop";
+        };
       };
     };
 }
