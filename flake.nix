@@ -1,35 +1,48 @@
 {
-  description = "Main Flake for Main, Laptop, AI Server configuration (uses overlays flake)";
+  description = "NixOS Configuration Flake";
+
   inputs = {
-    nixpkgs.url = "github:nixos/nixpkgs?ref=nixos-unstable";
+    nixpkgs.url = "github:nixos/nixpkgs/nixos-unstable";
     home-manager.url = "github:nix-community/home-manager";
+    home-manager.inputs.nixpkgs.follows = "nixpkgs";
   };
 
-  outputs = { self, nixpkgs, home-manager, ... }@inputs: let
-    # Collect overlay functions from the overlays flake
-    mkPkgs = system: import nixpkgs { inherit system; };
-  in {
-    nixosConfigurations = {
-      # Main
-      sam-main = let pkgs = mkPkgs "x86_64-linux"; in pkgs.lib.nixosSystem {
-        system = "x86_64-linux";
-        modules = [ ./hosts/sam_main ];
-        specialArgs = { inherit home-manager; };
-      };
+  outputs = { self, nixpkgs, home-manager, ... }@inputs:
+    let
+      system = "x86_64-linux";
+      
+      # Helper to create hosts with standard inputs and modules
+      mkHost = { hostname, modules ? [], ... }:
+        nixpkgs.lib.nixosSystem {
+          inherit system;
+          specialArgs = { inherit inputs; };
+          modules = [
+            ./hosts/${hostname} # Automatically imports default.nix in this dir
+            
+            # Home Manager Integration
+            home-manager.nixosModules.home-manager
+            {
+              home-manager.useGlobalPkgs = true;
+              home-manager.useUserPackages = true;
+              home-manager.users.sam = import ./modules/home-manager;
+              home-manager.extraSpecialArgs = { inherit inputs; };
+            }
+          ] ++ modules;
+        };
+    in
+    {
+      nixosConfigurations = {
+        sam-main = mkHost {
+          hostname = "sam_main";
+        };
 
-      # Laptop
-      framework13 = let pkgs = mkPkgs "x86_64-linux"; in pkgs.lib.nixosSystem {
-        system = "x86_64-linux";
-        modules = [ ./hosts/framework13 ];
-        specialArgs = { inherit home-manager; };
-      };
+        framework13 = mkHost {
+          hostname = "framework13";
+        };
 
-      # Server
-      AIServer = let pkgs = mkPkgs "x86_64-linux"; in pkgs.lib.nixosSystem {
-        system = "x86_64-linux";
-        modules = [ ./hosts/AIServer ];
-        specialArgs = { inherit home-manager; };
+        AIServer = mkHost {
+          hostname = "AIServer";
+        };
       };
     };
-  };
 }
