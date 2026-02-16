@@ -11,21 +11,21 @@
   in {
     nixosConfigurations = {
       # Main
-      sam-main = let pkgs = mkPkgs "x86_64-linux"; in pkgs.lib.nixosSystem {
+      sam-main = let pkgs = mkPkgs "x86_64-linux"; in nixpkgs.lib.nixosSystem {
         system = "x86_64-linux";
-        modules = [ ./hosts/sam_main ];
+        modules = [ ./hosts/sam_main/configuration.nix ];
         specialArgs = { inherit home-manager; };
       };
 
       # Laptop
-      framework13 = let pkgs = mkPkgs "x86_64-linux"; in pkgs.lib.nixosSystem {
+      framework13 = let pkgs = mkPkgs "x86_64-linux"; in nixpkgs.lib.nixosSystem {
         system = "x86_64-linux";
         modules = [ ./hosts/framework13 ];
         specialArgs = { inherit home-manager; };
       };
 
       # Server
-      AIServer = let pkgs = mkPkgs "x86_64-linux"; in pkgs.lib.nixosSystem {
+      AIServer = let pkgs = mkPkgs "x86_64-linux"; in nixpkgs.lib.nixosSystem {
         system = "x86_64-linux";
         modules = [ ./hosts/AIServer ];
         specialArgs = { inherit home-manager; };

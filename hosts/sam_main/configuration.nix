@@ -88,6 +88,48 @@
   # enable tailscale
   services.tailscale.enable = true;
 
+  # enable opentelemetry collector
+  services.opentelemetry-collector = {
+    enable = true;
+    settings = {
+      receivers = {
+        otlp = {
+          protocols = {
+            grpc = { endpoint = "0.0.0.0:4317"; };
+            http = { endpoint = "0.0.0.0:4318"; };
+          };
+        };
+      };
+      processors = {
+        batch = { };
+      };
+      exporters = {
+        debug = {
+          verbosity = "detailed";
+        };
+      };
+      service = {
+        pipelines = {
+          traces = {
+            receivers = [ "otlp" ];
+            processors = [ "batch" ];
+            exporters = [ "debug" ];
+          };
+          metrics = {
+            receivers = [ "otlp" ];
+            processors = [ "batch" ];
+            exporters = [ "debug" ];
+          };
+          logs = {
+            receivers = [ "otlp" ];
+            processors = [ "batch" ];
+            exporters = [ "debug" ];
+          };
+        };
+      };
+    };
+  };
+
   # enable waydroid
   virtualisation.waydroid.enable = true;
 
