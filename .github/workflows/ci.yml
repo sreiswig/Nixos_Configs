@@ -1,0 +1,31 @@
+name: NixOS Configuration Check
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  check-configuration:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Install Nix
+        uses: DeterminateSystems/nix-installer-action@v9
+
+      - name: Check Flake (Syntax & deps)
+        run: nix flake check
+
+      - name: Build sam-main (Dry Run)
+        run: nix build .#nixosConfigurations.sam-main.config.system.build.toplevel
+
+      - name: Build framework13 (Dry Run)
+        run: nix build .#nixosConfigurations.framework13.config.system.build.toplevel
+
+      - name: Build AIServer (Dry Run)
+        run: nix build .#nixosConfigurations.AIServer.config.system.build.toplevel
