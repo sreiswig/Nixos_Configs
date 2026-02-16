@@ -34,7 +34,7 @@
     zulip
     hugo
     kitty
-    nixfmt-rfc-style
+    nixfmt
     vscode-fhs
     antigravity-fhs
     minikube
@@ -78,5 +78,12 @@
     options = "--delete-older-than 10d";
   };
   
+  virtualisation.vmVariant = {
+    virtualisation.cores = 4;
+    virtualisation.memorySize = 8192;
+    users.mutableUsers = false;
+    users.users.sam.password = "nixos";
+  };
+
   system.stateVersion = "23.11";
 }
