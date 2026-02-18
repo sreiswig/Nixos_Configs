@@ -5,10 +5,14 @@
     # Shared Modules
     ../../modules/common
     ../../modules/desktop
+    ../../modules/services/opentelemetry.nix
 
     # Local Configuration
     ./hardware-configuration.nix
   ];
+
+  services.my-opentelemetry.enable = true;
+  services.my-opentelemetry.role = "agent";
 
   networking.hostName = "framework13";
 

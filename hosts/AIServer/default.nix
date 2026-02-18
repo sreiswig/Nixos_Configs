@@ -10,11 +10,15 @@
     ../../modules/hardware/gpu/amd_gpu.nix
     ../../modules/hardware/gpu/nvidia_gpu.nix
     ../../modules/hardware/gpu/intel_gpu.nix
+    ../../modules/services/opentelemetry.nix
 
     # Local Configuration
     ./hardware-configuration.nix
     # ./ollama.nix # Commented out in original
   ];
+
+  services.my-opentelemetry.enable = true;
+  services.my-opentelemetry.role = "server";
 
   networking.hostName = "AI_Server";
   boot.initrd.kernelModules = [ "amdgpu" ];

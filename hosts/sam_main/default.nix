@@ -6,11 +6,15 @@
     ../../modules/common
     ../../modules/desktop
     ../../modules/hardware/gpu/nvidia_gpu.nix
+    ../../modules/services/opentelemetry.nix
 
     # Local Configuration
     ./hardware-configuration.nix
     ./docker.nix
   ];
+
+  services.my-opentelemetry.enable = true;
+  services.my-opentelemetry.role = "agent";
 
   networking.hostName = "sam_nixos";
 
