@@ -62,7 +62,6 @@
       api_addr = "https://aiserver.tail93ec7d.ts.net/vault"
     '';
   };
-  environment.variables.VAULT_ADDR = "https://aiserver.tail93ec7d.ts.net/vault";
 
   services.n8n.enable = true;
   
@@ -86,7 +85,6 @@
     WEBHOOK_URL = lib.mkForce "https://aiserver.tail93ec7d.ts.net";
   };
 
-  services.tailscale.enable = true;
   services.tailscale.permitCertUid = "caddy";
 
   services.gitea = {
@@ -115,26 +113,12 @@
     '';
   };
 
-  services.openssh = {
-    enable = true;
-    openFirewall = false;
-    settings = {
-      PasswordAuthentication = true;
-      UseDns = false;
-      X11Forwarding = false;
-      PermitRootLogin = "prohibit-password";
-    };
-  };
-
   networking.firewall.interfaces."enp37s0f1np1".allowedTCPPorts = [ 3389 22 8000 ];
   networking.firewall.trustedInterfaces = [ "tailscale0" ];
 
   users.users.sam.packages = with pkgs; [
     gnome-disk-utility
     devenv
-    direnv
-    nix-direnv
-    vault
   ];
 
   system.stateVersion = "24.11";

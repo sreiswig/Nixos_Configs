@@ -39,6 +39,15 @@
 
   # Common Environment
   environment.variables.EDITOR = "lvim";
+  environment.variables.VAULT_ADDR = "https://aiserver.tail93ec7d.ts.net/vault";
+
+  # Common Services
+  services.tailscale.enable = lib.mkDefault true;
+  services.openssh = {
+    enable = lib.mkDefault true;
+    settings.PasswordAuthentication = lib.mkDefault false;
+    settings.PermitRootLogin = lib.mkDefault "no";
+  };
   
   environment.systemPackages = with pkgs; [
     git
@@ -55,6 +64,10 @@
     direnv
     nix-direnv
     nh # Nice to have for flake management
+    yazi
+    zellij
+    vault
+    gh
   ];
 
   # Basic User (Sam)

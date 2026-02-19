@@ -30,11 +30,10 @@
 
   # Specific Services
   services.printing.enable = true;
-  services.tailscale.enable = true;
   virtualisation.waydroid.enable = true;
 
   # Gaming & Entertainment
-  programs.steam.enable = true; # Already in desktop, but harmless to re-enable
+  # programs.steam.enable = true; # Handled by desktop module
   
   # User Packages specific to this host
   users.users.sam.packages = with pkgs; [
@@ -60,11 +59,8 @@
     obs-studio
     gimp
     gnupg
-    gopass
     vulkan-tools
     impala
-    yazi
-    zellij
     prismlauncher
     (retroarch.withCores (cores: with cores; [
       vba-m

@@ -38,6 +38,53 @@ The build process creates a `result` symlink in the root directory. To remove it
 make clean
 ```
 
+## Post-Consolidation Verification Checklist
+
+After applying changes, use this checklist to ensure all components are functional and correctly centralized.
+
+### 1. Common Services (All Hosts)
+- **Tailscale**: Run `tailscale status`. You should see your mesh network nodes.
+- **OpenSSH**: 
+  - Try `ssh localhost`. It should prompt for your key/password (based on your config).
+  - Verify security settings: `sshd -T | grep -E "passwordauthentication|permitrootlogin"`.
+
+### 2. Common CLI Tools (All Hosts)
+Verify the following tools are available in your PATH:
+```bash
+# Core Tools
+vault --version
+yazi --version
+zellij --version
+gh --version
+lazygit --version
+
+# Env Check
+echo $EDITOR        # Should be 'lvim'
+echo $VAULT_ADDR    # Should be 'https://aiserver.tail93ec7d.ts.net/vault'
+```
+
+### 3. Secret Management (Vault)
+- **Connectivity**: Run `vault status`. It should return the status of the server on `AIServer`.
+- **Authentication**: Run `vault login` to verify you can authenticate using your preferred method.
+
+### 4. Host-Specific Verification
+
+#### sam-main / framework13 (Desktop)
+- **Graphical Apps**: Verify `discord`, `obsidian`, and `google-chrome` are available in the application launcher.
+- **Gaming**: Run `steam` to ensure the program starts.
+- **Dev Tools**: Verify `vscode` (via `code`) and `hugo` are available.
+
+#### AIServer (Services)
+- **Web Entry**: Visit `https://aiserver.tail93ec7d.ts.net` (requires Tailscale).
+- **Service Status**: Check systemd units for key services:
+  ```bash
+  systemctl status caddy
+  systemctl status vault
+  systemctl status gitea
+  systemctl status n8n
+  systemctl status neo4j
+  ```
+
 ## Advanced / Automated Testing
 
 ### CI/CD (GitHub Actions)

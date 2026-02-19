@@ -26,25 +26,16 @@
   users.users.sam.extraGroups = [ "docker" ];
   users.users.sam.packages = with pkgs; [
      fprintd
-     yazi
-     zulip
      cbmc
-     tailscale
      kdePackages.konsole
-     gh
-     gopass
      hugo
      vscode-fhs
-     steam
-     obsidian
      kdePackages.dolphin
      kdePackages.krohnkite
      lynx
      conda
      catppuccin-sddm
-     discord
      kdePackages.qtwayland
-     zellij
      zoom-us
   ];
   
