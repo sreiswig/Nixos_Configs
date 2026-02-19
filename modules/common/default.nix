@@ -68,6 +68,7 @@
     zellij
     vault
     gh
+    gemini-cli
   ];
 
   # Basic User (Sam)

@@ -67,7 +67,6 @@
     ]))
     archipelago
     github-copilot-cli
-    gemini-cli
   ];
 
   # Fonts
