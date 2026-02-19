@@ -1,0 +1,40 @@
+graph TD
+    subgraph "Agents & CI/CD"
+        Dev[Developer] -->|Git Push| Repo[(Git Repo)]
+        Repo -->|Trigger| CI[CI Pipeline]
+        
+        CI -->|Lint/Build| Build{Build Success?}
+        Build -- No --> Notify[Notify Developer]
+        Build -- Yes --> Type{Change Type?}
+        
+        Type -- "Minor/Safe" --> AutoDeploy[Auto Deployment]
+        Type -- "Major/Sensitive" --> HITL[Human Approval Gate]
+        
+        HITL -- "Approve" --> AutoDeploy
+        HITL -- "Reject" --> Notify
+        
+        AutoDeploy -->|Deploy| Hosts[Target Hosts]
+    end
+
+    subgraph "Autonomous Agents (On Hosts)"
+        Hosts -->|Metrics/Logs| Monitor[Monitoring Agent]
+        Hosts -->|Health Check| SvcAgent[Service Mgmt Agent]
+        
+        SvcAgent -- "Minor Issue" --> Restart[Restart Service]
+        SvcAgent -- "Critical Issue" --> Alert[Alert Human]
+        
+        Monitor -->|Threshold Exceeded| Alert
+        
+        UpdateAgent[Update Agent] -->|Schedule| FlakeUpdate[nix flake update]
+        FlakeUpdate -->|Commit| Repo
+    end
+
+    subgraph "Content Generation"
+        Repo -->|Docs Change| GenDocs[Regenerate Diagrams]
+        Repo -->|Feat Tag| GenVideo[Record Demo Video]
+        GenDocs -->|Commit| Repo
+        GenVideo -->|Publish| Artifacts[Video Artifacts]
+    end
+    
+    style HITL fill:#ff9,stroke:#333,stroke-width:2px
+    style Alert fill:#f99,stroke:#333,stroke-width:2px
