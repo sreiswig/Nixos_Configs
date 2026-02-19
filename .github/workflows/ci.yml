@@ -1,4 +1,4 @@
-name: NixOS Configuration Check
+name: NixOS Flake Check
 
 on:
   push:
@@ -9,23 +9,21 @@ on:
       - main
 
 jobs:
-  check-configuration:
+  check-flake:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout Repository
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+      - uses: DeterminateSystems/nix-installer-action@v16
+      - run: nix flake check
 
-      - name: Install Nix
-        uses: DeterminateSystems/nix-installer-action@v9
-
-      - name: Check Flake (Syntax & deps)
-        run: nix flake check
-
-      - name: Build sam-main (Dry Run)
-        run: nix build .#nixosConfigurations.sam-main.config.system.build.toplevel
-
-      - name: Build framework13 (Dry Run)
-        run: nix build .#nixosConfigurations.framework13.config.system.build.toplevel
-
-      - name: Build AIServer (Dry Run)
-        run: nix build .#nixosConfigurations.AIServer.config.system.build.toplevel
+  build-configs:
+    needs: check-flake
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        host: [sam-main, framework13, AIServer]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: DeterminateSystems/nix-installer-action@v16
+      - name: Dry-run Build
+        run: nix build .#nixosConfigurations.${{ matrix.host }}.config.system.build.toplevel --dry-run
