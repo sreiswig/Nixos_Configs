@@ -2,7 +2,6 @@
 
 {
   # Link your existing config files
-  home.file.".bashrc".source = ./bashrc;
   home.file.".config/lvim/config.lua".source = ../../program_configs/lvim/config.lua;
 
   # Plasma Configuration
@@ -42,7 +41,6 @@
 
   # Packages needed for these configs
   home.packages = with pkgs; [
-    starship
     papirus-icon-theme
   ];
 

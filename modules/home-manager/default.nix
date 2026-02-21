@@ -6,5 +6,28 @@
 
   home.stateVersion = "24.11"; # Keeping it compatible with recent stable
   
+  programs.starship = {
+    enable = true;
+    enableBashIntegration = true;
+  };
+
+  programs.zoxide = {
+    enable = true;
+    enableBashIntegration = true;
+  };
+
+  programs.direnv = {
+    enable = true;
+    nix-direnv.enable = true;
+    enableBashIntegration = true;
+  };
+
+  programs.bash = {
+    enable = true;
+    shellAliases = {
+      sl = "ls";
+    };
+  };
+
   programs.home-manager.enable = true;
 }
