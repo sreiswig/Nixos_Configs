@@ -69,6 +69,7 @@
     vault
     gh
     gemini-cli
+    opencode
   ];
 
   # Basic User (Sam)
