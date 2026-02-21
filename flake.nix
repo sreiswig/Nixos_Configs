@@ -29,6 +29,7 @@
             {
               home-manager.useGlobalPkgs = true;
               home-manager.useUserPackages = true;
+              home-manager.backupFileExtension = "backup";
               home-manager.users.sam = {
                 imports = [ 
                   ./modules/home-manager 
