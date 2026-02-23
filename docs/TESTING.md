@@ -19,6 +19,12 @@ make vm-framework13
 
 # Test AIServer
 make vm-aiserver
+
+# Test dad_nas
+make vm-dad_nas
+
+# Test asus_rog_1070
+make vm-asus_rog_1070
 ```
 *Note: The VM usually opens in a new window. You can interact with it to verify boot, services, and UI.*
 

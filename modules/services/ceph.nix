@@ -14,6 +14,12 @@ in
       default = "client";
       description = "Role of this node: server (Mon/Mgr/MDS/OSD) or client";
     };
+
+    osdIds = mkOption {
+      type = types.listOf types.int;
+      default = [];
+      description = "List of OSD IDs to enable on this host";
+    };
   };
 
   config = mkIf cfg.enable {
@@ -85,8 +91,8 @@ in
       # 2. Setup loop device: losetup /dev/loop0 /var/lib/ceph/osd.img
       # 3. Zap and create OSD: ceph-volume lvm create --data /dev/loop0
       osd = {
-        enable = true;
-        daemons = []; # To be filled by system state or manual provision
+        enable = cfg.osdIds != [];
+        daemons = cfg.osdIds; 
       };
     };
 

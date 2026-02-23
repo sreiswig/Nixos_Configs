@@ -62,10 +62,6 @@
         dad_nas = mkHost {
           hostname = "dad_nas";
         };
-
-        sam_old_laptop = mkHost {
-          hostname = "sam_old_laptop";
-        };
       };
     };
 }
