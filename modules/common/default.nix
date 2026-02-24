@@ -70,6 +70,7 @@
     gh
     gemini-cli
     opencode
+    devenv
   ];
 
   # Basic User (Sam)
