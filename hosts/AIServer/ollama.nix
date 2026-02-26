@@ -2,7 +2,7 @@
 {
   services.ollama = {
     enable = true;
-    acceleration = "cuda";
+    package = pkgs.ollama-cuda;
     environmentVariables = {
       HCC_AMDGPU_TARGET = "gfx1030";
       OLLAMA_INTEL_GPU = "true";

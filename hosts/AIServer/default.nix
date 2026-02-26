@@ -89,27 +89,18 @@
 
   environment.variables.VAULT_ADDR = "https://aiserver.tail93ec7d.ts.net/vault";
 
-  services.n8n.enable = true;
+  services.n8n = {
+    enable = true;
+    environment = {
+      N8N_PROTOCOL = "https";
+      N8N_HOST = "aiserver.tail93ec7d.ts.net";
+      N8N_SECURE_COOKIE = "true";
+      WEBHOOK_URL = lib.mkForce "https://aiserver.tail93ec7d.ts.net";
+      N8N_RUNNERS_AUTH_TOKEN_FILE = "/var/lib/n8n/auth-token";
+    };
+  };
   
   # n8n Overlay/Override
-  nixpkgs.overlays = [
-    (final: prev: {
-      n8n = (import (builtins.fetchTarball {
-        url = "https://github.com/nixos/nixpkgs/archive/80e4adbcf8992d3fd27ad4964fbb84907f9478b0.tar.gz";
-        sha256 = "0hx09ar14njl4vgarsy79vlykwswg7rbxak7c7qm1n8r0szy6r0b";
-      }) {
-        inherit (final) system;
-        config.allowUnfree = true;
-      }).n8n;
-    })
-  ];
-
-  systemd.services.n8n.environment = {
-    N8N_PROTOCOL = "https";
-    N8N_HOST = "aiserver.tail93ec7d.ts.net";
-    N8N_SECURE_COOKIE = "true";
-    WEBHOOK_URL = lib.mkForce "https://aiserver.tail93ec7d.ts.net";
-  };
 
   services.tailscale.permitCertUid = "caddy";
 
