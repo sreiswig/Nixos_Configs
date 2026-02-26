@@ -85,6 +85,10 @@ in
     ];
 
     initLua = ''
+      -- Set Leader Key
+      vim.g.mapleader = " "
+      vim.g.maplocalleader = " "
+
       -- Basic Settings
       vim.opt.termguicolors = true
       vim.opt.number = true
@@ -94,8 +98,22 @@ in
       vim.api.nvim_set_hl(0, "Normal", { bg = "none" })
       vim.api.nvim_set_hl(0, "NormalFloat", { bg = "none" })
 
-      -- Indent Lines (User request: disabled)
-      -- No plugin installed for indent lines, so it is disabled by default.
+      -- Initialize core plugins
+      require("which-key").setup {}
+      require("nvim-tree").setup {}
+      require("telescope").setup {}
+      require("nvim-treesitter").setup {
+        highlight = { enable = true },
+      }
+
+      -- Basic Keybindings (mimicking lvim)
+      local wk = require("which-key")
+      wk.register({
+        f = { "<cmd>Telescope find_files<cr>", "Find File" },
+        e = { "<cmd>NvimTreeToggle<cr>", "Explorer" },
+        w = { "<cmd>w<cr>", "Save" },
+        q = { "<cmd>q<cr>", "Quit" },
+      }, { prefix = "<leader>" })
 
       -- Format on save (User request)
       vim.api.nvim_create_autocmd("BufWritePre", {
