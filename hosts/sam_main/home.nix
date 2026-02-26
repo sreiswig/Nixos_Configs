@@ -2,7 +2,7 @@
 
 {
   # Link your existing config files
-  home.file.".config/lvim/config.lua".source = ../../program_configs/lvim/config.lua;
+  # home.file.".config/lvim/config.lua".source = ../../program_configs/lvim/config.lua;
 
   # Plasma Configuration
   programs.plasma = {
