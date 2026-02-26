@@ -14,7 +14,8 @@
 
     # Local Configuration
     ./hardware-configuration.nix
-    # ./ollama.nix # Commented out in original
+    ./ollama.nix
+    ./docker.nix
   ];
 
   services.my-opentelemetry.enable = true;
@@ -33,21 +34,44 @@
     virtualHosts = {
       "aiserver.tail93ec7d.ts.net" = {
         extraConfig = ''
-          handle_path /git* { reverse_proxy 127.0.0.1:3001 }
-          handle_path /ollama* { reverse_proxy 127.0.0.1:11434 }
-          handle_path /vault* { reverse_proxy 127.0.0.1:8200 }
-          handle /ui* { reverse_proxy 127.0.0.1:8200 }
-          handle { reverse_proxy 127.0.0.1:5678 }
+          # Proxy for Gitea
+          handle_path /git* {
+            reverse_proxy 127.0.0.1:3001
+          }
+
+          # Proxy for Ollama
+          handle_path /ollama* {
+            reverse_proxy 127.0.0.1:11434
+          }
+
+          # Proxy for Vault
+          handle_path /vault* {
+            reverse_proxy 127.0.0.1:8200
+          }
+
+          # Vault static assets
+          handle /ui* {
+            reverse_proxy 127.0.0.1:8200
+          }
+
+          # Proxy for n8n (Default catch-all)
+          handle {
+            reverse_proxy 127.0.0.1:5678
+          }
         '';
       };
-      # Duplicate entry in original, merging logical intention?
-      # The original had: "aiserver.tail93ec7d.ts.net" = { extraConfig = "reverse_proxy 127.0.0.1:7474"; };
-      # This conflicts with the above block for the same domain. Caddy doesn't support duplicate keys in Nix usually?
-      # I'll comment this one out as it looks like a copy-paste error or override that might break the first one.
-      # "aiserver.tail93ec7d.ts.net" = { extraConfig = "reverse_proxy 127.0.0.1:7474"; };
-      
-      "queennas.tail93ec7d.ts.net" = { extraConfig = "reverse_proxy 100.74.70.2:8096"; };
-      "immich.tail93ec7d.ts.net" = { extraConfig = "reverse_proxy 100.74.70.2:1112"; };
+      "aiserver.tail93ec7d.ts.net:8474" = {
+        extraConfig = "reverse_proxy 127.0.0.1:7474";
+      };
+      "aiserver.tail93ec7d.ts.net:7687" = {
+        extraConfig = "reverse_proxy 127.0.0.1:7688";
+      };
+      "queennas.tail93ec7d.ts.net" = {
+        extraConfig = "reverse_proxy 100.74.70.2:8096";
+      };
+      "immich.tail93ec7d.ts.net" = {
+        extraConfig = "reverse_proxy 100.74.70.2:1112";
+      };
     };
   };
 
@@ -62,6 +86,8 @@
       api_addr = "https://aiserver.tail93ec7d.ts.net/vault"
     '';
   };
+
+  environment.variables.VAULT_ADDR = "https://aiserver.tail93ec7d.ts.net/vault";
 
   services.n8n.enable = true;
   
@@ -87,6 +113,17 @@
 
   services.tailscale.permitCertUid = "caddy";
 
+  # SSH Overrides for AI Server
+  services.openssh = {
+    enable = true;
+    settings = {
+      PasswordAuthentication = true;
+      PermitRootLogin = "prohibit-password";
+      UseDns = false;
+      X11Forwarding = false;
+    };
+  };
+
   services.gitea = {
     enable = true;
     appName = "AIServer Code Hub";
@@ -103,13 +140,20 @@
   services.neo4j = {
     enable = true;
     package = pkgs.neo4j;
+
     http.listenAddress = "127.0.0.1:7474";
-    bolt.listenAddress = "0.0.0.0:7687";
+    https.enable = false;
+
+    bolt = {
+      listenAddress = "127.0.0.1:7688";
+      advertisedAddress = "aiserver.tail93ec7d.ts.net:7687";
+      tlsLevel = "DISABLED";
+    };
+
     extraServerConfig = ''
       server.memory.heap.initial_size=4G
       server.memory.heap.max_size=8G
       server.memory.pagecache.size=2G
-      dbms.connector.bolt.listen_address=0.0.0.0:7687
     '';
   };
 
@@ -119,6 +163,8 @@
   users.users.sam.packages = with pkgs; [
     gnome-disk-utility
     devenv
+    google-chrome
+    kdePackages.kate
   ];
 
   system.stateVersion = "24.11";
