@@ -11,7 +11,9 @@
     # Example: Set your workspace theme
     workspace = {
       lookAndFeel = "org.kde.breezedark.desktop";
-      cursorTheme = "Breeze_Snow";
+      cursor = {
+        theme = "Breeze_Snow";
+      };
       iconTheme = "Papirus-Dark";
       wallpaper = "${pkgs.kdePackages.plasma-workspace-wallpapers}/share/wallpapers/Patak/contents/images/1920x1080.jpg";
     };

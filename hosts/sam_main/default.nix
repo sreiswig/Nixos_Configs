@@ -7,7 +7,6 @@
     ../../modules/desktop
     ../../modules/hardware/gpu/nvidia_gpu.nix
     ../../modules/services/opentelemetry.nix
-    ../../modules/services/ceph.nix
 
     # Local Configuration
     ./hardware-configuration.nix
@@ -16,11 +15,6 @@
 
   services.my-opentelemetry.enable = true;
   services.my-opentelemetry.role = "agent";
-
-  services.homelab-ceph = {
-    enable = true;
-    role = "client";
-  };
 
   networking.hostName = "sam_nixos";
 

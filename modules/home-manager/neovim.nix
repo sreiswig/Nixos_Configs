@@ -84,7 +84,7 @@ in
       lean-nvim
     ];
 
-    extraLuaConfig = ''
+    initLua = ''
       -- Basic Settings
       vim.opt.termguicolors = true
       vim.opt.number = true
