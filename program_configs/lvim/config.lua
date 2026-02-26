@@ -13,8 +13,13 @@ lvim.builtin.indentlines.active = false
 lvim.plugins = {
   {
     'mfussenegger/nvim-dap-python',
-    'nvim-neotest/neotest',
-    'nvim-neotest/neotest-python',
+    config = function()
+      require('dap-python').setup()
+    end,
+  },
+  { 'nvim-neotest/neotest' },
+  { 'nvim-neotest/neotest-python' },
+  {
     'Julian/lean.nvim',
     event = { 'BufReadPre *.lean', 'BufNewFile *.lean' },
 
@@ -34,7 +39,7 @@ lvim.plugins = {
 
 dap.adapters.coreclr = {
   type = 'executable',
-  command = '/nix/store/6k089v1ldj3sc522s858hjkzvqdm6xx6-netcoredbg-3.1.0-1031/bin/netcoredbg',
+  command = 'netcoredbg',
   args = { '--interpreter=vscode' }
 }
 
@@ -49,4 +54,3 @@ dap.configurations.cs = {
   },
 }
 
-require('dap-python').setup()

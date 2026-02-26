@@ -60,16 +60,6 @@
     variant = "";
   };
 
-  # Enable Tailscale
-  services.tailscale.enable = true;
-
-  # Enable SSH
-  services.openssh.enable = true;
-
-  # Enable RDP
-  services.xrdp.enable = true;
-  services.xrdp.defaultWindowManager = "startplasma-x11";
-
   # Enable auto-mounting daemon
   services.udisks2.enable = true;
 
@@ -131,7 +121,6 @@
       "cdrom"
     ];
     packages = with pkgs; [
-      lunarvim
     ];
   };
 
@@ -144,6 +133,7 @@
   # List packages installed in system profile. To search, run:
   # $ nix search wget
   environment.systemPackages = with pkgs; [
+    opencode
     jellyfin
     jellyfin-web
     jellyfin-ffmpeg

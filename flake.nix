@@ -1,35 +1,67 @@
 {
-  description = "Main Flake for Main, Laptop, AI Server configuration (uses overlays flake)";
+  description = "NixOS Configuration Flake";
+
   inputs = {
-    nixpkgs.url = "github:nixos/nixpkgs?ref=nixos-unstable";
+    nixpkgs.url = "github:nixos/nixpkgs/nixos-unstable";
     home-manager.url = "github:nix-community/home-manager";
-  };
-
-  outputs = { self, nixpkgs, home-manager, ... }@inputs: let
-    # Collect overlay functions from the overlays flake
-    mkPkgs = system: import nixpkgs { inherit system; };
-  in {
-    nixosConfigurations = {
-      # Main
-      sam-main = let pkgs = mkPkgs "x86_64-linux"; in pkgs.lib.nixosSystem {
-        system = "x86_64-linux";
-        modules = [ ./hosts/sam_main ];
-        specialArgs = { inherit home-manager; };
-      };
-
-      # Laptop
-      framework13 = let pkgs = mkPkgs "x86_64-linux"; in pkgs.lib.nixosSystem {
-        system = "x86_64-linux";
-        modules = [ ./hosts/framework13 ];
-        specialArgs = { inherit home-manager; };
-      };
-
-      # Server
-      AIServer = let pkgs = mkPkgs "x86_64-linux"; in pkgs.lib.nixosSystem {
-        system = "x86_64-linux";
-        modules = [ ./hosts/AIServer ];
-        specialArgs = { inherit home-manager; };
-      };
+    home-manager.inputs.nixpkgs.follows = "nixpkgs";
+    plasma-manager = {
+      url = "github:pjones/plasma-manager";
+      inputs.nixpkgs.follows = "nixpkgs";
+      inputs.home-manager.follows = "home-manager";
     };
   };
+
+  outputs = { self, nixpkgs, home-manager, plasma-manager, ... }@inputs:
+    let
+      system = "x86_64-linux";
+      
+      # Helper to create hosts with standard inputs and modules
+      mkHost = { hostname, modules ? [], ... }:
+        nixpkgs.lib.nixosSystem {
+          inherit system;
+          specialArgs = { inherit inputs; };
+          modules = [
+            ./hosts/${hostname} # Automatically imports default.nix in this dir
+            
+            # Home Manager Integration
+            home-manager.nixosModules.home-manager
+            {
+              home-manager.useGlobalPkgs = true;
+              home-manager.useUserPackages = true;
+              home-manager.backupFileExtension = "backup";
+              home-manager.users.sam = {
+                imports = [ 
+                  ./modules/home-manager 
+                  plasma-manager.homeModules.plasma-manager
+                ] ++ (if builtins.pathExists (./hosts + "/${hostname}/home.nix") then [ (./hosts + "/${hostname}/home.nix") ] else []);
+              };
+              home-manager.extraSpecialArgs = { inherit inputs; };
+            }
+          ] ++ modules;
+        };
+    in
+    {
+      nixosConfigurations = {
+        sam-main = mkHost {
+          hostname = "sam_main";
+        };
+
+        framework13 = mkHost {
+          hostname = "framework13";
+        };
+
+        AIServer = mkHost {
+          hostname = "AIServer";
+        };
+
+        asus_rog_1070 = mkHost {
+          hostname = "asus_rog_1070";
+        };
+
+        dad_nas = mkHost {
+          hostname = "dad_nas";
+        };
+      };
+    };
 }
