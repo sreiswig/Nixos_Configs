@@ -117,7 +117,7 @@
           }
         '';
       };
-      "aiserver.tail93ec7d.ts.net" = {
+      "aiserver.tail93ec7d.ts.net:8474" = {
         extraConfig = "reverse_proxy 127.0.0.1:7474";
       };
       "queennas.tail93ec7d.ts.net" = {
