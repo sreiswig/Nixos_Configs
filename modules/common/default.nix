@@ -61,6 +61,7 @@
     eza
     lazygit
     lazydocker
+    lazyssh
     direnv
     nix-direnv
     nh # Nice to have for flake management
