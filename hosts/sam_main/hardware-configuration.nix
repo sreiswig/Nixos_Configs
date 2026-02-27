@@ -23,6 +23,21 @@
       fsType = "vfat";
     };
 
+  fileSystems."/mnt/Backup" =
+    { device = "/dev/disk/by-uuid/df50e8cb-3f3c-44c6-8be5-faed1dce07bc";
+      fsType = "ext4";
+    };
+
+  fileSystems."/mnt/Backup2" =
+    { device = "/dev/disk/by-uuid/a2d2f0fd-47c5-4809-a60d-60ef4d3f86a4";
+      fsType = "ext4";
+    };
+
+  fileSystems."/mnt/Games" =
+    { device = "/dev/disk/by-uuid/25ea454e-104a-49fd-a2e8-8cc7d291cc28";
+      fsType = "ext4";
+    };
+
   swapDevices =
     [ { device = "/dev/disk/by-uuid/2e577847-749a-4976-8871-af95e73005e5"; }
     ];

@@ -6,6 +6,7 @@
     ../../modules/common
     ../../modules/desktop
     ../../modules/hardware/gpu/nvidia_gpu.nix
+    ../../modules/hardware/gpu/intel_gpu.nix
     ../../modules/services/opentelemetry.nix
 
     # Local Configuration
@@ -20,7 +21,13 @@
 
   # Hyprland
   programs.hyprland.enable = true;
-  environment.sessionVariables.NIXOS_OZONE_WL = "1";
+  environment.sessionVariables = {
+    NIXOS_OZONE_WL = "1";
+    LIBVA_DRIVER_NAME = "nvidia";
+    GBM_BACKEND = "nvidia-drm";
+    __GLX_VENDOR_LIBRARY_NAME = "nvidia";
+    WLR_NO_HARDWARE_CURSORS = "1"; # Often needed for NVIDIA
+  };
 
   # Specific Services
   services.printing.enable = true;
