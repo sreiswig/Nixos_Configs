@@ -3,6 +3,7 @@
 {
   imports = [
     ./neovim.nix
+    ./plasma.nix
   ];
 
   home.username = "sam";
