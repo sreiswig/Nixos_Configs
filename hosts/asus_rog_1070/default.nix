@@ -2,6 +2,7 @@
 
 {
   imports = [
+    ../../modules/common
     ./configuration.nix
     ../../modules/services/opentelemetry.nix
   ];

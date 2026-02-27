@@ -15,10 +15,6 @@
     xkb.variant = "";
   };
 
-  # Bluetooth
-  hardware.bluetooth.enable = true;
-  hardware.bluetooth.powerOnBoot = true;
-
   # Fonts
   fonts.packages = with pkgs; [
     nerd-fonts.fira-code
