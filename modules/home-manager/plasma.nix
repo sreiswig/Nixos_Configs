@@ -5,11 +5,12 @@
     enable = true;
 
     workspace = {
-      lookAndFeel = "org.kde.breezedark.desktop";
+      lookAndFeel = "Sweet";
+      colorScheme = "Sweet";
       cursor = {
         theme = "Breeze_Snow";
       };
-      iconTheme = "Papirus-Dark";
+      iconTheme = "candy-icons";
       # Default wallpaper - can be overridden per host if needed
       wallpaper = "${pkgs.kdePackages.plasma-workspace-wallpapers}/share/wallpapers/Patak/contents/images/1920x1080.jpg";
     };
@@ -543,7 +544,7 @@
       kwinrc.Plugins.videowallEnabled = false;
       kwinrc.Plugins.wobblywindowsEnabled = true;
       kwinrc.Script-krohnkite.screenDefaultLayout = "DP-2:stacked,DP-3:stacked";
-      kwinrc."org.kde.kdecoration2".theme = "__aurorae__svg__Sweet-Dark";
+      kwinrc."org.kde.kdecoration2".theme = "__aurorae__svg__Sweet";
       plasma-localerc.Formats.LANG = "en_US.UTF-8";
       plasmanotifyrc."Applications/discord".Seen = true;
       plasmanotifyrc."Applications/discord".ShowBadges = false;
@@ -572,5 +573,9 @@
 
   home.packages = with pkgs; [
     papirus-icon-theme
+    sweet
+    sweet-nova
+    candy-icons
+    sweet-folders
   ];
 }
