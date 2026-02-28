@@ -51,6 +51,8 @@
     deja-dup
     xwayland
     kdePackages.kdenlive
+    vlc
+    mpv
     kdePackages.krdc
     kdePackages.krohnkite
     kdePackages.partitionmanager
