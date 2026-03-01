@@ -84,14 +84,16 @@ in
           debug = {
             verbosity = "detailed";
           };
-          # Here we could add prometheus, loki, tempo, etc.
+          prometheus = {
+            endpoint = "127.0.0.1:8889";
+          };
         };
         service = {
           pipelines = {
             metrics = {
               receivers = [ "otlp" ];
               processors = [ "batch" ];
-              exporters = [ "debug" ];
+              exporters = [ "debug" "prometheus" ];
             };
             traces = {
               receivers = [ "otlp" ];

@@ -11,6 +11,7 @@
     ../../modules/hardware/gpu/nvidia_gpu.nix
     ../../modules/hardware/gpu/intel_gpu.nix
     ../../modules/services/opentelemetry.nix
+    ../../modules/services/monitoring.nix
 
     # Local Configuration
     ./hardware-configuration.nix
@@ -20,6 +21,8 @@
 
   services.my-opentelemetry.enable = true;
   services.my-opentelemetry.role = "server";
+
+  services.my-monitoring.enable = true;
 
   networking.hostName = "AI_Server";
   boot.initrd.kernelModules = [ "amdgpu" ];
@@ -42,6 +45,11 @@
           # Proxy for Ollama
           handle_path /ollama* {
             reverse_proxy 127.0.0.1:11434
+          }
+
+          # Proxy for Grafana
+          handle_path /grafana* {
+            reverse_proxy 127.0.0.1:3000
           }
 
           # Proxy for Vault
