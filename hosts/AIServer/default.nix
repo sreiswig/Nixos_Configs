@@ -12,6 +12,7 @@
     ../../modules/hardware/gpu/intel_gpu.nix
     ../../modules/services/opentelemetry.nix
     ../../modules/services/monitoring.nix
+    ../../modules/services/kubernetes.nix
 
     # Local Configuration
     ./hardware-configuration.nix
@@ -23,6 +24,14 @@
   services.my-opentelemetry.role = "server";
 
   services.my-monitoring.enable = true;
+
+  services.my-k3s = {
+    enable = true;
+    role = "server";
+    useDocker = true; # Using Docker for easier GPU access via nvidia-container-toolkit
+    disableTraefik = true; # Let Caddy handle routing
+    nvidiaSupport = true;
+  };
 
   networking.hostName = "AI_Server";
   boot.initrd.kernelModules = [ "amdgpu" ];
