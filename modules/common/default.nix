@@ -76,6 +76,7 @@
     gemini-cli
     opencode
     devenv
+    attic-client
   ];
 
   # Basic User (Sam)

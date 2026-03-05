@@ -31,6 +31,7 @@
 
   # Specific Services
   services.printing.enable = true;
+  services.harmonia.enable = true;
   virtualisation.waydroid.enable = true;
 
   # Gaming & Entertainment

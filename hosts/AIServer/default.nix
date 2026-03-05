@@ -71,6 +71,11 @@
             reverse_proxy 127.0.0.1:8200
           }
 
+          # Proxy for Attic
+          handle_path /attic* {
+            reverse_proxy 127.0.0.1:8080
+          }
+
           # Proxy for n8n (Default catch-all)
           handle {
             reverse_proxy 127.0.0.1:5678
@@ -163,6 +168,45 @@
       server.memory.heap.max_size=8G
       server.memory.pagecache.size=2G
     '';
+  };
+
+  # Attic Server
+  services.atticd = {
+    enable = true;
+
+    # You will need to create this file with ATTIC_SERVER_TOKEN_RS256_SECRET_BASE64
+    # environmentFile = "/var/lib/atticd/atticd.env";
+
+    # Basic settings
+    settings = {
+      listen = "[::]:8080";
+      database.url = "postgresql:///atticd?host=/run/postgresql";
+      
+      # Storage settings (local filesystem by default)
+      storage = {
+        type = "local";
+        path = "/var/lib/atticd/storage";
+      };
+
+      chunking = {
+        # The minimum NAR size (in bytes) that will be chunked
+        nar-size-threshold = 64 * 1024; # 64 KiB
+        # The preferred chunk size (in bytes)
+        min-size = 16 * 1024; # 16 KiB
+        avg-size = 64 * 1024; # 64 KiB
+        max-size = 256 * 1024; # 256 KiB
+      };
+    };
+  };
+
+  # PostgreSQL for Attic
+  services.postgresql = {
+    enable = true;
+    ensureDatabases = [ "atticd" ];
+    ensureUsers = [{
+      name = "atticd";
+      ensureDBOwnership = true;
+    }];
   };
 
   networking.firewall.interfaces."enp37s0f1np1".allowedTCPPorts = [ 3389 22 8000 ];
