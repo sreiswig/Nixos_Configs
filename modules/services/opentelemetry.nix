@@ -41,6 +41,13 @@ in
               network = {};
             };
           };
+          journald = {
+            operators = [{
+              type = "add";
+              field = "attributes.host";
+              value = config.networking.hostName;
+            }];
+          };
         };
         processors = {
           batch = {};
@@ -64,7 +71,7 @@ in
               exporters = [ "otlp" ];
             };
             logs = {
-              receivers = [ "otlp" ];
+              receivers = [ "otlp" "journald" ];
               processors = [ "batch" ];
               exporters = [ "otlp" ];
             };
@@ -87,6 +94,9 @@ in
           prometheus = {
             endpoint = "127.0.0.1:8889";
           };
+          loki = {
+            endpoint = "http://127.0.0.1:3100/loki/api/v1/push";
+          };
         };
         service = {
           pipelines = {
@@ -103,7 +113,7 @@ in
             logs = {
               receivers = [ "otlp" ];
               processors = [ "batch" ];
-              exporters = [ "debug" ];
+              exporters = [ "debug" "loki" ];
             };
           };
         };
