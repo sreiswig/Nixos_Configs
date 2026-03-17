@@ -42,7 +42,7 @@
   nixpkgs.config.allowUnfree = true;
 
   # Common Environment
-  environment.variables.EDITOR = "lvim";
+  environment.variables.EDITOR = "nvim";
   environment.variables.VAULT_ADDR = "https://aiserver.tail93ec7d.ts.net/vault";
 
   # Common Services
@@ -55,7 +55,6 @@
   
   environment.systemPackages = with pkgs; [
     git
-    lunarvim
     btop
     ripgrep
     wget

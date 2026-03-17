@@ -4,61 +4,62 @@ let
   netcoredbg = "${pkgs.netcoredbg}/bin/netcoredbg";
 in
 {
-  # 1. Consistent LunarVim Configuration for all hosts
-  xdg.configFile."lvim/config.lua".text = ''
-    -- Read the docs: https://www.lunarvim.org/docs/configuration
-    -- Example configs: https://github.com/LunarVim/starter.lvim
-    
-    local dap = require('dap')
-
-    lvim.transparent_window = true
-    lvim.format_on_save.enabled = true
-    lvim.builtin.indentlines.active = false
-
-    lvim.plugins = {
-      {
-        'mfussenegger/nvim-dap-python',
-        'nvim-neotest/neotest',
-        'nvim-neotest/neotest-python',
-        'Julian/lean.nvim',
-        event = { 'BufReadPre *.lean', 'BufNewFile *.lean' },
-
-        dependencies = {
-          'neovim/nvim-lspconfig',
-          'nvim-lua/plenary.nvim',
-        },
-
-        opts = {
-          lsp = {},
-          mappings = true,
-        }
-      },
-    }
-
-    dap.adapters.coreclr = {
-      type = 'executable',
-      command = '${netcoredbg}',
-      args = { '--interpreter=vscode' }
-    }
-
-    dap.configurations.cs = {
-      {
-        type = "coreclr",
-        name = "launch - netcoredbg",
-        request = "launch",
-        program = function()
-          return vim.fn.input('Path to dll', vim.fn.getcwd() .. '/bin/Debug/', 'file')
-        end,
-      },
-    }
-
-    require('dap-python').setup()
-  '';
+  # 1. (Legacy) Consistent LunarVim Configuration for all hosts
+  # Note: lvim is deprecated and removed from nixpkgs.
+  # xdg.configFile."lvim/config.lua".text = ''
+  #   -- Read the docs: https://www.lunarvim.org/docs/configuration
+  #   -- Example configs: https://github.com/LunarVim/starter.lvim
+  #   
+  #   local dap = require('dap')
+  #
+  #   lvim.transparent_window = true
+  #   lvim.format_on_save.enabled = true
+  #   lvim.builtin.indentlines.active = false
+  #
+  #   lvim.plugins = {
+  #     {
+  #       'mfussenegger/nvim-dap-python',
+  #       'nvim-neotest/neotest',
+  #       'nvim-neotest/neotest-python',
+  #       'Julian/lean.nvim',
+  #       event = { 'BufReadPre *.lean', 'BufNewFile *.lean' },
+  #
+  #       dependencies = {
+  #         'neovim/nvim-lspconfig',
+  #         'nvim-lua/plenary.nvim',
+  #       },
+  #
+  #       opts = {
+  #         lsp = {},
+  #         mappings = true,
+  #       }
+  #     },
+  #   }
+  #
+  #   dap.adapters.coreclr = {
+  #     type = 'executable',
+  #     command = '${netcoredbg}',
+  #     args = { '--interpreter=vscode' }
+  #   }
+  #
+  #   dap.configurations.cs = {
+  #     {
+  #       type = "coreclr",
+  #       name = "launch - netcoredbg",
+  #       request = "launch",
+  #       program = function()
+  #         return vim.fn.input('Path to dll', vim.fn.getcwd() .. '/bin/Debug/', 'file')
+  #       end,
+  #     },
+  #   }
+  #
+  #   require('dap-python').setup()
+  # '';
 
   # 2. Bare Neovim Configuration mimicking LunarVim
   programs.neovim = {
     enable = true;
-    defaultEditor = false; # lvim is main editor
+    defaultEditor = true; # Set as main editor
     viAlias = true;
     vimAlias = true;
     

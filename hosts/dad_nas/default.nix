@@ -12,7 +12,7 @@
   services.my-opentelemetry.role = "agent";
 
   services.homelab-ceph = {
-    enable = true;
+    enable = false; # Temporarily disabled due to upstream build error with sphinx/python3.11
     role = "server";
   };
 }

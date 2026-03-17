@@ -23,7 +23,10 @@
   services.my-opentelemetry.enable = true;
   services.my-opentelemetry.role = "server";
 
-  services.my-monitoring.enable = true;
+  services.my-monitoring = {
+    enable = true;
+    grafanaEnvFile = "/var/lib/grafana/grafana.env";
+  };
 
   services.my-k3s = {
     enable = true;
@@ -175,7 +178,7 @@
     enable = true;
 
     # You will need to create this file with ATTIC_SERVER_TOKEN_RS256_SECRET_BASE64
-    # environmentFile = "/var/lib/atticd/atticd.env";
+    environmentFile = "/var/lib/atticd/atticd.env";
 
     # Basic settings
     settings = {

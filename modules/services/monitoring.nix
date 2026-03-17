@@ -14,6 +14,12 @@ in
       default = "aiserver.tail93ec7d.ts.net";
       description = "Domain for Grafana";
     };
+
+    grafanaEnvFile = mkOption {
+      type = types.nullOr types.path;
+      default = null;
+      description = "Path to environment file containing GF_SECURITY_SECRET_KEY";
+    };
   };
 
   config = mkIf cfg.enable {
@@ -77,6 +83,9 @@ in
           root_url = "https://${cfg.grafanaDomain}/grafana/";
           serve_from_sub_path = true;
         };
+        security = {
+          secret_key = "$__file{${toString cfg.grafanaEnvFile}}"; 
+        };
       };
       provision = {
         enable = true;
@@ -95,5 +104,7 @@ in
         ];
       };
     };
+
+    systemd.services.grafana.serviceConfig.EnvironmentFile = mkIf (cfg.grafanaEnvFile != null) [ cfg.grafanaEnvFile ];
   };
 }

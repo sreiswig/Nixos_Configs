@@ -31,7 +31,7 @@
 
   # Specific Services
   services.printing.enable = true;
-  services.harmonia.enable = true;
+  services.harmonia.cache.enable = true;
   virtualisation.waydroid.enable = true;
 
   # Gaming & Entertainment
@@ -42,7 +42,6 @@
     blender
     mermaid-cli
     fprintd
-    zulip
     hugo
     kitty
     nixfmt
