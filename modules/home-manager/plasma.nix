@@ -11,8 +11,7 @@
         theme = "Breeze_Snow";
       };
       iconTheme = "candy-icons";
-      # Default wallpaper - can be overridden per host if needed
-      wallpaper = "${pkgs.kdePackages.plasma-workspace-wallpapers}/share/wallpapers/Patak/contents/images/1920x1080.jpg";
+      wallpaper = "/home/sam/Pictures/Desktop_Backgrounds/Astronomy -NASA--Saturn at the Moon-s Edge-Chengcheng Xu.jpg";
     };
 
     shortcuts = {
@@ -316,11 +315,12 @@
 
     panels = [
       {
-        location = "bottom";
+        location = "top";
+        height = 10;
         widgets = [
-          "org.kde.plasma.kickoff"
+          "org.kde.plasma.kickerdash"
           "org.kde.plasma.pager"
-          "org.kde.plasma.taskmanager"
+          "org.kde.plasma.icontasks"
           "org.kde.plasma.systemtray"
           "org.kde.plasma.digitalclock"
         ];
@@ -331,7 +331,6 @@
       baloofilerc.General.dbVersion = 2;
       baloofilerc.General."exclude filters" = "*~,*.part,*.o,*.la,*.lo,*.loT,*.moc,moc_*.cpp,qrc_*.cpp,ui_*.h,cmake_install.cmake,CMakeCache.txt,CTestTestfile.cmake,libtool,config.status,confdefs.h,autom4te,conftest,confstat,Makefile.am,*.gcode,.ninja_deps,.ninja_log,build.ninja,*.csproj,*.m4,*.rej,*.gmo,*.pc,*.omf,*.aux,*.tmp,*.po,*.vm*,*.nvram,*.rcore,*.swp,*.swap,lzo,litmain.sh,*.orig,.histfile.*,.xsession-errors*,*.map,*.so,*.a,*.db,*.qrc,*.ini,*.init,*.img,*.vdi,*.vbox*,vbox.log,*.qcow2,*.vmdk,*.vhd,*.vhdx,*.sql,*.sql.gz,*.ytdl,*.tfstate*,*.class,*.pyc,*.pyo,*.elc,*.qmlc,*.jsc,*.fastq,*.fq,*.gb,*.fasta,*.fna,*.gbff,*.faa,po,CVS,.svn,.git,_darcs,.bzr,.hg,CMakeFiles,CMakeTmp,CMakeTmpQmake,.moc,.obj,.pch,.uic,.npm,.yarn,.yarn-cache,__pycache__,node_modules,node_packages,nbproject,.terraform,.venv,venv,core-dumps,lost+found";
       baloofilerc.General."exclude filters version" = 9;
-      dolphinrc.General.ViewPropsTimestamp = "2024,6,19,21,42,39.503";
       dolphinrc."KFileDialog Settings"."Places Icons Auto-resize" = false;
       dolphinrc."KFileDialog Settings"."Places Icons Static Size" = 22;
       dolphinrc.Search.Location = "Everywhere";
@@ -484,6 +483,7 @@
       katerc.lspclient.TypeFormatting = false;
       kcminputrc."Libinput/2362/628/PIXA3854:00 093A:0274 Touchpad".NaturalScroll = true;
       kcminputrc.Mouse.X11LibInputXAccelProfileFlat = true;
+      kcminputrc.Mouse.cursorSize = 32;
       kcminputrc.Tmp.update_info = "delete_cursor_old_default_size.upd:DeleteCursorOldDefaultSize";
       kded5rc.Module-browserintegrationreminder.autoload = false;
       kded5rc.Module-device_automounter.autoload = false;
@@ -515,7 +515,6 @@
       kdeglobals."KFileDialog Settings"."Sort reversed" = false;
       kdeglobals."KFileDialog Settings"."Speedbar Width" = 154;
       kdeglobals."KFileDialog Settings"."View Style" = "DetailTree";
-      kdeglobals.KScreen.ScreenScaleFactors = "HDMI-A-1=1;DP-2=1;DP-3=1;";
       kdeglobals.KScreen.XwaylandClientsScale = false;
       kdeglobals.WM.activeBackground = "47,52,63";
       kdeglobals.WM.activeBlend = "47,52,63";
@@ -543,8 +542,6 @@
       kwinrc.Plugins.krohnkiteEnabled = true;
       kwinrc.Plugins.videowallEnabled = false;
       kwinrc.Plugins.wobblywindowsEnabled = true;
-      kwinrc.Script-krohnkite.screenDefaultLayout = "DP-2:stacked,DP-3:stacked";
-      kwinrc."org.kde.kdecoration2".theme = "__aurorae__svg__Sweet";
       plasma-localerc.Formats.LANG = "en_US.UTF-8";
       plasmanotifyrc."Applications/discord".Seen = true;
       plasmanotifyrc."Applications/discord".ShowBadges = false;
@@ -560,8 +557,7 @@
       plasmarc.Wallpapers.usersWallpapers = "/home/sam/Pictures/Desktop_Backgrounds/Astronomy -NASA--Saturn at the Moon-s Edge-Chengcheng Xu.jpg,/home/sam/Documents/Wallpapers/wp14802168-4k-wallpapers.webp,/home/sam/Documents/Wallpapers/wp12782086-4k-ai-generated-wallpapers.jpg,/home/sam/Documents/Wallpapers/wp14818709-astronomy-wallpapers.webp,/home/sam/Documents/Wallpapers/wp4676588-4k-pc-wallpapers.jpg";
       spectaclerc.Annotations.annotationToolType = 3;
       spectaclerc.GuiConfig.captureMode = 0;
-      spectaclerc.ImageSave.lastImageSaveAsLocation = "file:///home/sam/Pictures/Screenshots/Screenshot_20250314_131903.png";
-      spectaclerc.ImageSave.lastImageSaveLocation = "file:///home/sam/Pictures/Screenshots/Screenshot_20260120_201435.png";
+      spectaclerc.GuiConfig.includePointer = true;
       spectaclerc.ImageSave.translatedScreenshotsFolder = "Screenshots";
       spectaclerc.VideoSave.translatedScreencastsFolder = "Screencasts";
     };

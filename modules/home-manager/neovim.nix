@@ -85,6 +85,7 @@ in
       neotest-python
       lean-nvim
       mini-nvim # Added for mini.icons and more
+      catppuccin-nvim
     ];
 
     extraPackages = with pkgs; [
@@ -112,9 +113,23 @@ in
       vim.opt.number = true
       vim.opt.relativenumber = true
       
-      -- Transparent Window (User request)
-      vim.api.nvim_set_hl(0, "Normal", { bg = "none" })
-      vim.api.nvim_set_hl(0, "NormalFloat", { bg = "none" })
+      -- Catppuccin Theme
+      require("catppuccin").setup({
+          flavour = "mocha", -- latte, frappe, macchiato, mocha
+          transparent_background = true,
+          integrations = {
+              cmp = true,
+              gitsigns = true,
+              nvimtree = true,
+              treesitter = true,
+              notify = false,
+              mini = {
+                  enabled = true,
+                  indentscope_color = "",
+              },
+          },
+      })
+      vim.cmd.colorscheme "catppuccin"
 
       -- Initialize core plugins
       require("which-key").setup {}
