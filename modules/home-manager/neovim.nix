@@ -76,6 +76,7 @@ in
       plenary-nvim
       which-key-nvim
       nvim-tree-lua
+      nvim-web-devicons # Added for better icons
       
       # User specific plugins
       nvim-dap
@@ -83,7 +84,23 @@ in
       neotest
       neotest-python
       lean-nvim
+      mini-nvim # Added for mini.icons and more
     ];
+
+    extraPackages = with pkgs; [
+      fd          # for telescope
+      tree-sitter # for treesitter
+      nodejs      # for node provider
+      lean4       # for lean.nvim (provides lake)
+      python3Packages.pynvim # for python provider
+    ];
+
+    withPython3 = true;
+    withNodeJs = true;
+    withRuby = true;
+    withPerl = true;
+
+    extraLuaPackages = ps: [ ps.jsregexp ];
 
     initLua = ''
       -- Set Leader Key
