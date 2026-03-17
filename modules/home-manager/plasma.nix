@@ -316,7 +316,7 @@
     panels = [
       {
         location = "top";
-        height = 10;
+        height = 20;
         widgets = [
           "org.kde.plasma.kickerdash"
           "org.kde.plasma.pager"
