@@ -111,6 +111,12 @@ in
       lua-language-server
       nodePackages.typescript-language-server
       marksman    # Markdown
+
+      # Formatters/Linters (for none-ls)
+      stylua
+      nodePackages.prettier
+      black
+      ncdu
     ];
 
     withPython3 = true;
@@ -169,7 +175,7 @@ in
           file_ignore_patterns = { "node_modules", ".git" },
         }
       }
-      require("nvim-treesitter.configs").setup {
+      require("nvim-treesitter").setup {
         highlight = { enable = true },
         indent = { enable = true },
       }
@@ -216,6 +222,11 @@ in
         htop:toggle()
       end
 
+      local ncdu = Terminal:new({ cmd = "ncdu", hidden = true })
+      function _NCDU_TOGGLE()
+        ncdu:toggle()
+      end
+
       -- Alpha (Dashboard)
       local alpha = require("alpha")
       local dashboard = require("alpha.themes.dashboard")
@@ -229,12 +240,7 @@ in
       }
       alpha.setup(dashboard.config)
 
-      -- Project
-      require("project_nvim").setup {}
-      require('telescope').load_extension('projects')
-
-      -- LSP Config
-      local lspconfig = require('lspconfig')
+      -- LSP Config (Neovim 0.11+)
       local capabilities = require('cmp_nvim_lsp').default_capabilities()
 
       local on_attach = function(client, bufnr)
@@ -248,12 +254,16 @@ in
         buf_set_keymap('n', 'gr', '<cmd>lua vim.lsp.buf.references()<cr>', opts)
       end
 
-      local servers = { 'nil_ls', 'pyright', 'lua_ls', 'tsserver' }
+      -- Set global configuration for all servers
+      vim.lsp.config['*'] = {
+        on_attach = on_attach,
+        capabilities = capabilities,
+      }
+
+      -- Enable servers
+      local servers = { 'nil_ls', 'pyright', 'lua_ls', 'ts_ls' }
       for _, lsp in ipairs(servers) do
-        lspconfig[lsp].setup {
-          on_attach = on_attach,
-          capabilities = capabilities,
-        }
+        vim.lsp.enable(lsp)
       end
 
       -- None-ls (Formatting/Linting)
@@ -268,6 +278,7 @@ in
 
       -- Completion
       local cmp = require'cmp'
+      require("luasnip.loaders.from_vscode").lazy_load()
       cmp.setup({
         snippet = {
           expand = function(args)
@@ -291,74 +302,73 @@ in
 
       -- Keybindings (LunarVim style)
       local wk = require("which-key")
-      wk.register({
-        ["<leader>f"] = { "<cmd>Telescope find_files<cr>", "Find File" },
-        ["<leader>e"] = { "<cmd>NvimTreeToggle<cr>", "Explorer" },
-        ["<leader>w"] = { "<cmd>w<cr>", "Save" },
-        ["<leader>q"] = { "<cmd>q<cr>", "Quit" },
-        ["<leader>h"] = { "<cmd>nohlsearch<cr>", "No Highlight" },
-        ["<leader>b"] = {
-          name = "Buffers",
-          j = { "<cmd>BufferLinePick<cr>", "Jump" },
-          f = { "<cmd>Telescope buffers<cr>", "Find" },
-          b = { "<cmd>BufferLineCyclePrev<cr>", "Previous" },
-          n = { "<cmd>BufferLineCycleNext<cr>", "Next" },
-          e = { "<cmd>BufferLinePickClose<cr>", "Pick Close" },
-        },
-        ["<leader>g"] = {
-          name = "Git",
-          j = { "<cmd>lua require 'gitsigns'.next_hunk()<cr>", "Next Hunk" },
-          k = { "<cmd>lua require 'gitsigns'.prev_hunk()<cr>", "Prev Hunk" },
-          l = { "<cmd>lua require 'gitsigns'.blame_line()<cr>", "Blame" },
-          p = { "<cmd>lua require 'gitsigns'.preview_hunk()<cr>", "Preview Hunk" },
-          r = { "<cmd>lua require 'gitsigns'.reset_hunk()<cr>", "Reset Hunk" },
-          R = { "<cmd>lua require 'gitsigns'.reset_buffer()<cr>", "Reset Buffer" },
-          s = { "<cmd>lua require 'gitsigns'.stage_hunk()<cr>", "Stage Hunk" },
-          u = { "<cmd>lua require 'gitsigns'.undo_stage_hunk()<cr>", "Undo Stage Hunk" },
-          o = { "<cmd>Telescope git_status<cr>", "Open changed file" },
-          b = { "<cmd>Telescope git_branches<cr>", "Checkout branch" },
-          c = { "<cmd>Telescope git_commits<cr>", "Checkout commit" },
-        },
-        ["<leader>l"] = {
-          name = "LSP",
-          a = { "<cmd>lua vim.lsp.buf.code_action()<cr>", "Code Action" },
-          d = { "<cmd>Telescope lsp_document_diagnostics<cr>", "Document Diagnostics" },
-          w = { "<cmd>Telescope lsp_workspace_diagnostics<cr>", "Workspace Diagnostics" },
-          f = { "<cmd>lua vim.lsp.buf.format({ async = true })<cr>", "Format" },
-          i = { "<cmd>LspInfo<cr>", "Info" },
-          I = { "<cmd>LspInstallInfo<cr>", "Installer Info" },
-          j = { "<cmd>lua vim.diagnostic.goto_next()<cr>", "Next Diagnostic" },
-          k = { "<cmd>lua vim.diagnostic.goto_prev()<cr>", "Prev Diagnostic" },
-          l = { "<cmd>lua vim.lsp.codelens.run()<cr>", "CodeLens Action" },
-          q = { "<cmd>lua vim.diagnostic.setloclist()<cr>", "Quickfix" },
-          r = { "<cmd>lua vim.lsp.buf.rename()<cr>", "Rename" },
-          s = { "<cmd>Telescope lsp_document_symbols<cr>", "Document Symbols" },
-          S = { "<cmd>Telescope lsp_dynamic_workspace_symbols<cr>", "Workspace Symbols" },
-        },
-        ["<leader>s"] = {
-          name = "Search",
-          b = { "<cmd>Telescope git_branches<cr>", "Checkout branch" },
-          c = { "<cmd>Telescope colorscheme<cr>", "Colorscheme" },
-          h = { "<cmd>Telescope help_tags<cr>", "Find Help" },
-          M = { "<cmd>Telescope man_pages<cr>", "Man Pages" },
-          r = { "<cmd>Telescope oldfiles<cr>", "Open Recent File" },
-          R = { "<cmd>Telescope registers<cr>", "Registers" },
-          t = { "<cmd>Telescope live_grep<cr>", "Text" },
-          k = { "<cmd>Telescope keymaps<cr>", "Keymaps" },
-          C = { "<cmd>Telescope commands<cr>", "Commands" },
-          p = { "<cmd>lua require('telescope.builtin').colorscheme({enable_preview = true})<cr>", "Colorscheme with Preview" },
-        },
-        ["<leader>t"] = {
-          name = "Terminal",
-          n = { "<cmd>lua _NODE_TOGGLE()<cr>", "Node" },
-          u = { "<cmd>lua _NCDU_TOGGLE()<cr>", "NCDU" },
-          t = { "<cmd>lua _HTOP_TOGGLE()<cr>", "Htop" },
-          p = { "<cmd>lua _PYTHON_TOGGLE()<cr>", "Python" },
-          f = { "<cmd>ToggleTerm direction=float<cr>", "Float" },
-          h = { "<cmd>ToggleTerm direction=horizontal<cr>", "Horizontal" },
-          v = { "<cmd>ToggleTerm direction=vertical<cr>", "Vertical" },
-        },
-        ["<leader>p"] = { "<cmd>Telescope projects<cr>", "Projects" },
+      wk.add({
+        { "<leader>f", "<cmd>Telescope find_files<cr>", desc = "Find File" },
+        { "<leader>e", "<cmd>NvimTreeToggle<cr>", desc = "Explorer" },
+        { "<leader>w", "<cmd>w<cr>", desc = "Save" },
+        { "<leader>q", "<cmd>q<cr>", desc = "Quit" },
+        { "<leader>h", "<cmd>nohlsearch<cr>", desc = "No Highlight" },
+        { "<leader>p", "<cmd>Telescope projects<cr>", desc = "Projects" },
+        
+        -- Buffers
+        { "<leader>b", group = "Buffers" },
+        { "<leader>bj", "<cmd>BufferLinePick<cr>", desc = "Jump" },
+        { "<leader>bf", "<cmd>Telescope buffers<cr>", desc = "Find" },
+        { "<leader>bb", "<cmd>BufferLineCyclePrev<cr>", desc = "Previous" },
+        { "<leader>bn", "<cmd>BufferLineCycleNext<cr>", desc = "Next" },
+        { "<leader>be", "<cmd>BufferLinePickClose<cr>", desc = "Pick Close" },
+        
+        -- Git
+        { "<leader>g", group = "Git" },
+        { "<leader>gj", function() require('gitsigns').next_hunk() end, desc = "Next Hunk" },
+        { "<leader>gk", function() require('gitsigns').prev_hunk() end, desc = "Prev Hunk" },
+        { "<leader>gl", function() require('gitsigns').blame_line() end, desc = "Blame" },
+        { "<leader>gp", function() require('gitsigns').preview_hunk() end, desc = "Preview Hunk" },
+        { "<leader>gr", function() require('gitsigns').reset_hunk() end, desc = "Reset Hunk" },
+        { "<leader>gR", function() require('gitsigns').reset_buffer() end, desc = "Reset Buffer" },
+        { "<leader>gs", function() require('gitsigns').stage_hunk() end, desc = "Stage Hunk" },
+        { "<leader>gu", function() require('gitsigns').undo_stage_hunk() end, desc = "Undo Stage Hunk" },
+        { "<leader>go", "<cmd>Telescope git_status<cr>", desc = "Open changed file" },
+        { "<leader>gb", "<cmd>Telescope git_branches<cr>", desc = "Checkout branch" },
+        { "<leader>gc", "<cmd>Telescope git_commits<cr>", desc = "Checkout commit" },
+        
+        -- LSP
+        { "<leader>l", group = "LSP" },
+        { "<leader>la", "<cmd>lua vim.lsp.buf.code_action()<cr>", desc = "Code Action" },
+        { "<leader>ld", "<cmd>Telescope diagnostics bufnr=0<cr>", desc = "Document Diagnostics" },
+        { "<leader>lw", "<cmd>Telescope diagnostics<cr>", desc = "Workspace Diagnostics" },
+        { "<leader>lf", "<cmd>lua vim.lsp.buf.format({ async = true })<cr>", desc = "Format" },
+        { "<leader>li", "<cmd>LspInfo<cr>", desc = "Info" },
+        { "<leader>lj", "<cmd>lua vim.diagnostic.goto_next()<cr>", desc = "Next Diagnostic" },
+        { "<leader>lk", "<cmd>lua vim.diagnostic.goto_prev()<cr>", desc = "Prev Diagnostic" },
+        { "<leader>ll", "<cmd>lua vim.lsp.codelens.run()<cr>", desc = "CodeLens Action" },
+        { "<leader>lq", "<cmd>lua vim.diagnostic.setloclist()<cr>", desc = "Quickfix" },
+        { "<leader>lr", "<cmd>lua vim.lsp.buf.rename()<cr>", desc = "Rename" },
+        { "<leader>ls", "<cmd>Telescope lsp_document_symbols<cr>", desc = "Document Symbols" },
+        { "<leader>lS", "<cmd>Telescope lsp_dynamic_workspace_symbols<cr>", desc = "Workspace Symbols" },
+        
+        -- Search
+        { "<leader>s", group = "Search" },
+        { "<leader>sb", "<cmd>Telescope git_branches<cr>", desc = "Checkout branch" },
+        { "<leader>sc", "<cmd>Telescope colorscheme<cr>", desc = "Colorscheme" },
+        { "<leader>sh", "<cmd>Telescope help_tags<cr>", desc = "Find Help" },
+        { "<leader>sM", "<cmd>Telescope man_pages<cr>", desc = "Man Pages" },
+        { "<leader>sr", "<cmd>Telescope oldfiles<cr>", desc = "Open Recent File" },
+        { "<leader>sR", "<cmd>Telescope registers<cr>", desc = "Registers" },
+        { "<leader>st", "<cmd>Telescope live_grep<cr>", desc = "Text" },
+        { "<leader>sk", "<cmd>Telescope keymaps<cr>", desc = "Keymaps" },
+        { "<leader>sC", "<cmd>Telescope commands<cr>", desc = "Commands" },
+        { "<leader>sp", function() require('telescope.builtin').colorscheme({enable_preview = true}) end, desc = "Colorscheme with Preview" },
+        
+        -- Terminal
+        { "<leader>t", group = "Terminal" },
+        { "<leader>tn", "<cmd>lua _NODE_TOGGLE()<cr>", desc = "Node" },
+        { "<leader>tu", "<cmd>lua _NCDU_TOGGLE()<cr>", desc = "NCDU" },
+        { "<leader>tt", "<cmd>lua _HTOP_TOGGLE()<cr>", desc = "Htop" },
+        { "<leader>tp", "<cmd>lua _PYTHON_TOGGLE()<cr>", desc = "Python" },
+        { "<leader>tf", "<cmd>ToggleTerm direction=float<cr>", desc = "Float" },
+        { "<leader>th", "<cmd>ToggleTerm direction=horizontal<cr>", desc = "Horizontal" },
+        { "<leader>tv", "<cmd>ToggleTerm direction=vertical<cr>", desc = "Vertical" },
       })
 
       -- DAP Setup
