@@ -13,7 +13,7 @@
     ../../modules/services/opentelemetry.nix
     ../../modules/services/monitoring.nix
     ../../modules/services/kubernetes.nix
-    ../../modules/services/authentik.nix
+    # ../../modules/services/authentik.nix
 
     # Local Configuration
     ./hardware-configuration.nix
@@ -29,10 +29,10 @@
     grafanaEnvFile = "/var/lib/grafana/grafana.env";
   };
   
-  services.my-authentik = {
-    enable = true;
-    environmentFile = "/var/lib/authentik/authentik.env";
-  };
+  # services.my-authentik = {
+  #   enable = true;
+  #   environmentFile = "/var/lib/authentik/authentik.env";
+  # };
 
   services.my-k3s = {
     enable = true;
@@ -53,12 +53,12 @@
   services.caddy = {
     enable = true;
     virtualHosts = {
-      "auth.tail93ec7d.ts.net" = {
-        extraConfig = ''
-          reverse_proxy 127.0.0.1:9000
-          reverse_proxy /outpost.goauthentik.io/* 127.0.0.1:9000
-        '';
-      };
+      # "auth.tail93ec7d.ts.net" = {
+      #   extraConfig = ''
+      #     reverse_proxy 127.0.0.1:9000
+      #     reverse_proxy /outpost.goauthentik.io/* 127.0.0.1:9000
+      #   '';
+      # };
       "aiserver.tail93ec7d.ts.net" = {
         extraConfig = ''
           # Proxy for Gitea
