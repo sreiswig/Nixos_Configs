@@ -16,7 +16,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
-      - uses: DeterminateSystems/nix-installer-action@v17
+      - uses: DeterminateSystems/nix-installer-action@main
       - run: nix flake check
 
   build-configs:
@@ -27,6 +27,6 @@ jobs:
         host: [sam-main, framework13, AIServer]
     steps:
       - uses: actions/checkout@v5
-      - uses: DeterminateSystems/nix-installer-action@v17
+      - uses: DeterminateSystems/nix-installer-action@main
       - name: Dry-run Build
         run: nix build .#nixosConfigurations.${{ matrix.host }}.config.system.build.toplevel --dry-run
