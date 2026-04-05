@@ -109,12 +109,12 @@ in
       nil         # Nix
       pyright     # Python
       lua-language-server
-      nodePackages.typescript-language-server
+      typescript-language-server
       marksman    # Markdown
 
       # Formatters/Linters (for none-ls)
       stylua
-      nodePackages.prettier
+      prettier
       black
       ncdu
     ];
