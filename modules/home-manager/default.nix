@@ -33,7 +33,7 @@
       sl = "ls";
     };
     initExtra = ''
-      case $(( RANDOM % 3 )) in
+      case $(( RANDOM % 4 )) in
         0)
           echo -e "\033[48;5;18;97m* * * * * * * *\033[0m \033[31m==============================\033[0m"
           echo -e "\033[48;5;18;97m * * * * * * * \033[0m \033[97m==============================\033[0m"
@@ -70,6 +70,16 @@
           echo -e "\033[1;37m        ( o.o )         \033[0m"
           echo -e "\033[1;33m         > ^ <          \033[0m"
           echo -e "\n        \033[1;37mmeow\033[0m"
+          ;;
+        3)
+          echo -e "\033[1;35m          _.._\033[0m"
+          echo -e "\033[1;35m        .'    \`.\033[0m"
+          echo -e "\033[1;35m       /   __   \\\033[0m"
+          echo -e "\033[1;35m    ,  |  (  )  |  ,\033[0m"
+          echo -e "\033[1;35m    \\'. \\  --  / .'/ \033[0m"
+          echo -e "\033[1;35m     '._\`------'_.'\033[0m"
+          echo -e "\033[1;35m        \`------'\033[0m"
+          echo -e "\n \033[1;37m\"Never perfect, perfection goal that changes, never stops moving, can chase, cannot catch.\"\033[0m"
           ;;
       esac
     '';
