@@ -10,7 +10,34 @@
   home.homeDirectory = "/home/sam";
 
   home.stateVersion = "24.11"; # Keeping it compatible with recent stable
-  
+
+  # OpenCode configuration
+  programs.opencode = {
+    enable = true;
+    settings = {
+      # Configure Ollama as a custom provider
+      provider = {
+        ollama = {
+          npm = "@ai-sdk/openai-compatible";
+          options = {
+            baseURL = "http://localhost:11434/v1";
+          };
+          models = {
+            # Add Ollama models you want to use
+            "llama3.2" = { };
+            "codellama" = { };
+            "mistral" = { };
+          };
+        };
+      };
+    };
+  };
+
+  # For Ollama, no API key is typically needed, but if you need to set environment variables:
+  # home.sessionVariables = {
+  #   OPENCODE_API_KEY = "ollama"; # or whatever your setup requires
+  # };
+
   programs.starship = {
     enable = true;
     enableBashIntegration = true;
