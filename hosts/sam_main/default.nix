@@ -30,7 +30,12 @@
   };
 
   # Specific Services
-  services.printing.enable = true;
+  services.printing = {
+    enable = true;
+    drivers = [ pkgs.canon-cups-ufr2 pkgs.cups-filters ];
+  };
+  services.ipp-usb.enable = true;
+  environment.systemPackages = with pkgs; [ ipp-usb cups ];
   services.harmonia.cache.enable = true;
   virtualisation.waydroid.enable = true;
 
@@ -53,6 +58,7 @@
     kdePackages.kdenlive
     vlc
     mpv
+    remmina
     kdePackages.krdc
     kdePackages.krohnkite
     kdePackages.partitionmanager

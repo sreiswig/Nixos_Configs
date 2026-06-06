@@ -29,6 +29,7 @@
      cbmc
      kdePackages.konsole
      hugo
+     remmina
      vscode-fhs
      kdePackages.dolphin
      kdePackages.krohnkite
