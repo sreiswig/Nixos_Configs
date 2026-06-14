@@ -72,7 +72,7 @@
     zellij
     vault
     gh
-    gemini-cli
+    antigravity-cli
     opencode
     devenv
     attic-client
