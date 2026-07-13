@@ -73,6 +73,7 @@
     vault
     gh
     antigravity-cli
+    grok-cli
     opencode
     devenv
     attic-client
