@@ -38,6 +38,7 @@
      catppuccin-sddm
      kdePackages.qtwayland
      zoom-us
+     grok-build
   ];
   
   system.stateVersion = "23.11";
