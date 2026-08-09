@@ -14,7 +14,9 @@
     ./docker.nix
   ];
 
-  services.my-opentelemetry.enable = true;
+  # Disabled until the Cyber-SOC pipeline is actually wired (AI Server + Loki/LLM).
+  # Module kept at modules/services/opentelemetry.nix for later.
+  services.my-opentelemetry.enable = false;
   services.my-opentelemetry.role = "agent";
 
   networking.hostName = "sam_nixos";

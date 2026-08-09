@@ -11,7 +11,8 @@
     ./hardware-configuration.nix
   ];
 
-  services.my-opentelemetry.enable = true;
+  # Disabled until the Cyber-SOC pipeline is actually wired (AI Server + Loki/LLM).
+  services.my-opentelemetry.enable = false;
   services.my-opentelemetry.role = "agent";
 
   networking.hostName = "framework13";
