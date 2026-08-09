@@ -569,7 +569,8 @@
 
   home.packages = with pkgs; [
     papirus-icon-theme
-    sweet
+    # sweet (GTK) was removed from nixpkgs: depended on gtk-engine-murrine/GTK2.
+    # Plasma look-and-feel "Sweet" comes from sweet-nova.
     sweet-nova
     candy-icons
     sweet-folders

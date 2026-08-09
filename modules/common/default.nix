@@ -55,6 +55,7 @@
   
   environment.systemPackages = with pkgs; [
     git
+    gnumake
     btop
     ripgrep
     wget
