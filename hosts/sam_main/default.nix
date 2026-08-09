@@ -53,7 +53,6 @@
     kitty
     nixfmt
     vscode-fhs
-    antigravity-fhs
     minikube
     deja-dup
     xwayland
