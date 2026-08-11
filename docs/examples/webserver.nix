@@ -1,3 +1,5 @@
+# Incomplete sketch — not imported by the flake. Kept as an example only.
+# Quarantined from services/ so evaluation / CI is not affected by this draft module.
 { config, pkgs, ... }: {
   options.services.nginx = {
     enable = mkEnableOption "Enable the Nginx web server";
