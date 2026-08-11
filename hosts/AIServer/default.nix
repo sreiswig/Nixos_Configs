@@ -234,6 +234,7 @@
     devenv
     google-chrome
     kdePackages.kate
+    grok-build
   ];
 
   system.stateVersion = "24.11";
