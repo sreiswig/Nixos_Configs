@@ -23,6 +23,15 @@
           specialArgs = { inherit inputs; };
           modules = [
             ./hosts/${hostname} # Automatically imports default.nix in this dir
+
+            # Local packages (available as pkgs.<name>; only installed where referenced)
+            {
+              nixpkgs.overlays = [
+                (final: prev: {
+                  grok-bot = final.callPackage ./pkgs/grok-bot { };
+                })
+              ];
+            }
             
             # Home Manager Integration
             home-manager.nixosModules.home-manager

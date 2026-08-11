@@ -78,6 +78,7 @@
     archipelago
     github-copilot-cli
     grok-build
+    grok-bot
   ];
 
   # Fonts

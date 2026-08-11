@@ -40,6 +40,7 @@
      kdePackages.qtwayland
      zoom-us
      grok-build
+     grok-bot
   ];
   
   system.stateVersion = "23.11";

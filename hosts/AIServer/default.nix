@@ -235,6 +235,7 @@
     google-chrome
     kdePackages.kate
     grok-build
+    grok-bot
   ];
 
   system.stateVersion = "24.11";
