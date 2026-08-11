@@ -236,6 +236,7 @@
     kdePackages.kate
     grok-build
     grok-bot
+    git-lfs
   ];
 
   system.stateVersion = "24.11";

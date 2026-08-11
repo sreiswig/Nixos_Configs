@@ -79,6 +79,7 @@
     github-copilot-cli
     grok-build
     grok-bot
+    git-lfs
   ];
 
   # Fonts

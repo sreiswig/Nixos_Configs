@@ -41,6 +41,7 @@
      zoom-us
      grok-build
      grok-bot
+     git-lfs
   ];
   
   system.stateVersion = "23.11";
