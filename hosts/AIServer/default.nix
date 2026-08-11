@@ -1,11 +1,10 @@
-{ config, pkgs, lib, ... }:
+{ config, pkgs, lib, ... }: {
 
-{
   imports = [
     # Shared Modules
     ../../modules/common
     ../../modules/desktop
-    
+
     # GPU Modules
     ../../modules/hardware/gpu/amd_gpu.nix
     ../../modules/hardware/gpu/nvidia_gpu.nix
@@ -13,6 +12,7 @@
     ../../modules/services/opentelemetry.nix
     ../../modules/services/monitoring.nix
     ../../modules/services/kubernetes.nix
+    ../../modules/services/ai-dispatch-caddy.nix
     # ../../modules/services/authentik.nix
 
     # Local Configuration
@@ -30,7 +30,7 @@
     enable = true;
     grafanaEnvFile = "/var/lib/grafana/grafana.env";
   };
-  
+
   # services.my-authentik = {
   #   enable = true;
   #   environmentFile = "/var/lib/authentik/authentik.env";
@@ -50,7 +50,7 @@
   # XRDP & Headless-ish Setup
   services.xrdp.enable = true;
   services.xrdp.defaultWindowManager = "startplasma-x11";
-  
+
   # Services from original configuration.nix
   services.caddy = {
     enable = true;
@@ -138,7 +138,7 @@
       N8N_RUNNERS_AUTH_TOKEN_FILE = "/var/lib/n8n/auth-token";
     };
   };
-  
+
   # n8n Overlay/Override
 
   services.tailscale.permitCertUid = "caddy";
@@ -198,7 +198,7 @@
     settings = {
       listen = "[::]:8080";
       database.url = "postgresql:///atticd?host=/run/postgresql";
-      
+
       # Storage settings (local filesystem by default)
       storage = {
         type = "local";
