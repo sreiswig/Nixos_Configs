@@ -8,6 +8,9 @@ on:
     branches:
       - main
 
+permissions:
+  contents: read
+
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
@@ -15,18 +18,24 @@ jobs:
   check-flake:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
-      - uses: DeterminateSystems/nix-installer-action@main
+      # v5 (resolved 2026-08-11 via git ls-remote refs/tags/v5 == v5.1.0)
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      # v22 (ef8a148080ab6020fd15196c2084a2eea5ff2d25) — prefer release tag over tip-of-main
+      - uses: DeterminateSystems/nix-installer-action@ef8a148080ab6020fd15196c2084a2eea5ff2d25 # v22
       - run: nix flake check
 
   build-configs:
     needs: check-flake
     runs-on: ubuntu-latest
     strategy:
+      fail-fast: false
       matrix:
+        # Three hosts only for now; asus_rog_1070 and dad_nas are intentionally excluded.
         host: [sam-main, framework13, AIServer]
     steps:
-      - uses: actions/checkout@v5
-      - uses: DeterminateSystems/nix-installer-action@main
+      # v5 (resolved 2026-08-11 via git ls-remote refs/tags/v5 == v5.1.0)
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      # v22 (ef8a148080ab6020fd15196c2084a2eea5ff2d25) — prefer release tag over tip-of-main
+      - uses: DeterminateSystems/nix-installer-action@ef8a148080ab6020fd15196c2084a2eea5ff2d25 # v22
       - name: Dry-run Build
         run: nix build .#nixosConfigurations.${{ matrix.host }}.config.system.build.toplevel --dry-run
