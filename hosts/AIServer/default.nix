@@ -93,10 +93,7 @@
             reverse_proxy 127.0.0.1:8080
           }
 
-          # Proxy for n8n (Default catch-all)
-          handle {
-            reverse_proxy 127.0.0.1:5678
-          }
+          # No catch-all (n8n removed). Unmatched paths get Caddy's default response.
         '';
       };
       "aiserver.tail93ec7d.ts.net:8474" = {
@@ -127,19 +124,6 @@
   };
 
   environment.variables.VAULT_ADDR = "https://aiserver.tail93ec7d.ts.net/vault";
-
-  services.n8n = {
-    enable = true;
-    environment = {
-      N8N_PROTOCOL = "https";
-      N8N_HOST = "aiserver.tail93ec7d.ts.net";
-      N8N_SECURE_COOKIE = "true";
-      WEBHOOK_URL = lib.mkForce "https://aiserver.tail93ec7d.ts.net";
-      N8N_RUNNERS_AUTH_TOKEN_FILE = "/var/lib/n8n/auth-token";
-    };
-  };
-
-  # n8n Overlay/Override
 
   services.tailscale.permitCertUid = "caddy";
 
