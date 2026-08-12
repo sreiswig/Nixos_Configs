@@ -8,7 +8,7 @@ External machines (Spark, Windows) live here only until they have a flake host.
 
 | Host | Flake attr | Hostname / MagicDNS | Platform | SMBIOS product / key PCI | Role | Notes |
 |------|------------|---------------------|----------|--------------------------|------|-------|
-| AIServer | `AIServer` | `AI_Server` / `aiserver.tail93ec7d.ts.net` | NixOS | _TBD (facter)_ | App/services hub | Caddy, Vault, Gitea, Attic, monitoring, K3s, … |
+| AIServer | `AIServer` | `AI_Server` / `aiserver.tail93ec7d.ts.net` | NixOS | _TBD (facter)_ | App/services hub | Caddy, Vault, Gitea, Attic, monitoring, K3s, [network self-heal](./network-self-heal.md), … |
 | sam_main | `sam-main` | `sam_nixos` | NixOS | _TBD_ | Primary workstation | Hyprland/Plasma, NVIDIA |
 | framework13 | `framework13` | `framework13` | NixOS | _TBD_ | Laptop | |
 | dad_nas | `dad_nas` | `queennas` / `queennas.tail93ec7d.ts.net` | NixOS | _TBD_ | Media NAS | Jellyfin, Immich; TS IP `100.74.70.2` in Caddy |
