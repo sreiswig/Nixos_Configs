@@ -44,6 +44,7 @@ let
       mkdir -p "$STATE_DIR"
 
       PING_TARGET="${cfg.pingTarget}"
+      PING_MODE="${cfg.pingMode}"
       REQUIRE_TS="${if cfg.requireTailscale then "1" else "0"}"
       WIFI_IFACE="${if cfg.wifiInterface != null then cfg.wifiInterface else ""}"
       DISABLE_PS="${if cfg.disableWifiPowersave then "1" else "0"}"
@@ -88,11 +89,8 @@ let
         ping -c 1 -W 3 "$PING_TARGET" >/dev/null 2>&1
       }
 
-      check_tailscale() {
-        if [[ "$REQUIRE_TS" != "1" ]]; then
-          return 0
-        fi
-        # Prefer JSON Self.Online; fall back to non-empty IPv4.
+      # Actual Tailscale online probe (ignores requireTailscale).
+      tailscale_online() {
         if command -v tailscale >/dev/null 2>&1; then
           if tailscale status --json 2>/dev/null | jq -e '.Self.Online == true' >/dev/null 2>&1; then
             return 0
@@ -102,23 +100,53 @@ let
           fi
           return 1
         fi
-        log "tailscale binary missing but requireTailscale=true"
         return 1
       }
 
-      healthy=1
+      check_tailscale() {
+        if [[ "$REQUIRE_TS" != "1" ]]; then
+          return 0
+        fi
+        if tailscale_online; then
+          return 0
+        fi
+        if ! command -v tailscale >/dev/null 2>&1; then
+          log "tailscale binary missing but requireTailscale=true"
+        fi
+        return 1
+      }
+
+      # Hard failures drive the escalation ladder. Soft ping (default) only
+      # warns when Tailscale proves connectivity and a default route exists —
+      # apartment WiFi often blocks ICMP to 1.1.1.1 while TS still works.
+      hard=0
+      route_ok=1
       if ! check_default_route; then
         log "FAIL: no default IPv4 route"
-        healthy=0
-      elif ! check_ping; then
-        log "FAIL: ping $PING_TARGET"
-        healthy=0
-      elif ! check_tailscale; then
-        log "FAIL: Tailscale not online / no IPv4"
-        healthy=0
+        route_ok=0
+        hard=1
       fi
 
-      if [[ "$healthy" == "1" ]]; then
+      ts_ok=1
+      if ! check_tailscale; then
+        log "FAIL: Tailscale not online / no IPv4"
+        ts_ok=0
+        hard=1
+      fi
+
+      if [[ "$PING_MODE" == "off" ]]; then
+        : # skip ICMP probe
+      elif ! check_ping; then
+        if [[ "$PING_MODE" == "soft" && "$REQUIRE_TS" == "1" && "$route_ok" == "1" ]] \
+          && tailscale_online; then
+          log "WARN: soft ping fail to $PING_TARGET (Tailscale online + default route OK; not escalating)"
+        else
+          log "FAIL: ping $PING_TARGET"
+          hard=1
+        fi
+      fi
+
+      if [[ "$hard" == "0" ]]; then
         prev="$(read_failures)"
         if [[ "$prev" != "0" ]]; then
           log "OK: uplink+tailscale healthy; resetting failure counter (was $prev)"
@@ -208,7 +236,24 @@ in
       description = ''
         ICMP target for uplink checks. Defaults to Cloudflare DNS (1.1.1.1)
         rather than the LAN gateway so we detect true WAN/uplink loss, not
-        merely a missing local router advertisement.
+        merely a missing local router advertisement. See pingMode for whether
+        a failed probe increments the hard-failure ladder.
+      '';
+    };
+
+    pingMode = mkOption {
+      type = types.enum [ "soft" "hard" "off" ];
+      default = "soft";
+      description = ''
+        How ICMP to pingTarget affects the hard-failure ladder:
+        - "soft" (default): if Tailscale is online (Self.Online / IPv4) and a
+          default route exists, ping failure is journal-warned only and does
+          not escalate. When Tailscale is down or requireTailscale=false, ping
+          failure still counts as a hard failure (useful WAN probe when TS
+          cannot prove connectivity). Safe default for apartment WiFi that
+          blocks ICMP while Tailscale still works.
+        - "hard": ping failure always increments the failure counter.
+        - "off": skip the ping probe entirely.
       '';
     };
 

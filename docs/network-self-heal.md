@@ -3,12 +3,27 @@
 Conservative watchdog that checks **default IPv4 route**, **ping to an uplink
 target** (default `1.1.1.1`, not the LAN gateway), and optionally **Tailscale
 online** (`tailscale status --json` → `Self.Online`, or a non-empty
-`tailscale ip -4`). On sustained failure it escalates:
+`tailscale ip -4`). On sustained **hard** failure it escalates:
 
 1. Restart **NetworkManager** (or bounce `wifiInterface` if NM is absent)
 2. Restart **tailscaled**
 3. Controlled **reboot** (high threshold + cooldown under
    `/var/lib/network-self-heal` so boxes do not reboot-loop)
+
+### Soft ping vs hard escalation
+
+`pingMode` (default `"soft"`) controls whether a failed ICMP probe increments the
+failure ladder:
+
+| Situation | Ping fail behavior |
+|-----------|--------------------|
+| Tailscale online + default route OK (`pingMode = "soft"`) | **Soft**: journal `WARN` only — no NM / `tailscaled` / reboot |
+| Tailscale down, or `requireTailscale = false` | **Hard**: counts toward escalation (WAN probe when TS can't prove connectivity) |
+| `pingMode = "hard"` | Always hard |
+| `pingMode = "off"` | Ping skipped |
+
+Apartment WiFi often blocks ICMP to `1.1.1.1` while Tailscale still works; soft
+mode avoids reboot loops in that case.
 
 This does **not** help if the machine is fully powered off or the kernel is
 hard-locked. Prefer **ethernet over WiFi**, and keep **OOB KVM** (or equivalent)
@@ -22,9 +37,10 @@ Module: [`modules/services/network-self-heal.nix`](../modules/services/network-s
 Option namespace: `services.my-network-self-heal` (matches other `services.my-*` modules).
 
 Enabled on AIServer in [`hosts/AIServer/default.nix`](../hosts/AIServer/default.nix)
-with Tailscale required and reboot escalation on. **`wifiInterface` is left
-unset** until the iface name is known — Tailscale + default-route healing still
-runs (NM / `tailscaled` / reboot).
+with Tailscale required, reboot escalation on, and default `pingMode = "soft"`
+(apartment-WiFi safe). **`wifiInterface` is left unset** until the iface name
+is known — Tailscale + default-route healing still runs (NM / `tailscaled` /
+reboot).
 
 ### Apply
 
@@ -63,6 +79,7 @@ When `wifiInterface` is set, `disableWifiPowersave` (default `true`) runs
 |--------|---------|-------|
 | `checkInterval` | `"2min"` | systemd `OnUnitActiveSec` |
 | `pingTarget` | `"1.1.1.1"` | Cloudflare DNS; detects WAN loss better than gateway ping |
+| `pingMode` | `"soft"` | `"soft"` / `"hard"` / `"off"` — see Soft ping vs hard escalation |
 | `requireTailscale` | `true` | JSON `Self.Online` or `tailscale ip -4` |
 | `failuresBeforeNetworkRestart` | `2` | NM restart / iface bounce |
 | `failuresBeforeTailscaleRestart` | `4` | `systemctl restart tailscaled` |
@@ -97,6 +114,7 @@ STATE_DIR=/var/lib/network-self-heal
 mkdir -p "$STATE_DIR"
 
 PING_TARGET="${PING_TARGET:-1.1.1.1}"
+PING_MODE="${PING_MODE:-soft}"
 REQUIRE_TS="${REQUIRE_TS:-1}"
 WIFI_IFACE="${WIFI_IFACE:-}"          # e.g. wlan0 — leave empty if unknown
 DISABLE_PS="${DISABLE_PS:-1}"
@@ -118,19 +136,33 @@ if [[ -n "$WIFI_IFACE" && "$DISABLE_PS" == "1" ]]; then
   iw dev "$WIFI_IFACE" set power_save off 2>/dev/null || true
 fi
 
-healthy=1
+hard=0
+route_ok=1
 if ! ip -4 route show default | grep -q .; then
-  log "FAIL: no default IPv4 route"; healthy=0
-elif ! ping -c 1 -W 3 "$PING_TARGET" >/dev/null 2>&1; then
-  log "FAIL: ping $PING_TARGET"; healthy=0
-elif [[ "$REQUIRE_TS" == "1" ]]; then
-  if ! tailscale status --json 2>/dev/null | jq -e '.Self.Online == true' >/dev/null 2>&1 \
-     && [[ -z "$(tailscale ip -4 2>/dev/null || true)" ]]; then
-    log "FAIL: Tailscale not online / no IPv4"; healthy=0
+  log "FAIL: no default IPv4 route"; route_ok=0; hard=1
+fi
+
+ts_online=0
+if command -v tailscale >/dev/null 2>&1; then
+  if tailscale status --json 2>/dev/null | jq -e '.Self.Online == true' >/dev/null 2>&1 \
+     || [[ -n "$(tailscale ip -4 2>/dev/null || true)" ]]; then
+    ts_online=1
   fi
 fi
 
-if [[ "$healthy" == "1" ]]; then
+if [[ "$REQUIRE_TS" == "1" && "$ts_online" != "1" ]]; then
+  log "FAIL: Tailscale not online / no IPv4"; hard=1
+fi
+
+if [[ "$PING_MODE" != "off" ]] && ! ping -c 1 -W 3 "$PING_TARGET" >/dev/null 2>&1; then
+  if [[ "$PING_MODE" == "soft" && "$REQUIRE_TS" == "1" && "$route_ok" == "1" && "$ts_online" == "1" ]]; then
+    log "WARN: soft ping fail to $PING_TARGET (Tailscale online + default route OK; not escalating)"
+  else
+    log "FAIL: ping $PING_TARGET"; hard=1
+  fi
+fi
+
+if [[ "$hard" == "0" ]]; then
   log "OK: uplink+tailscale healthy"
   write_failures 0
   exit 0

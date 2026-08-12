@@ -35,12 +35,13 @@
   # Heal default route + Tailscale when the box falls off the network.
   # wifiInterface left unset until Sam confirms the name (`ip link` / journal).
   # Ethernet (enp37s0f1np1) is preferred over WiFi; OOB KVM still best for total radio death.
+  # pingMode defaults to "soft": ICMP fail is WARN-only while Tailscale is online.
   services.my-network-self-heal = {
     enable = true;
     # wifiInterface = "wlan0"; # set once known
     requireTailscale = true;
     escalateToReboot = true;
-    # defaults: check every 2min; ping 1.1.1.1; escalate NM@2 → tailscaled@4 → reboot@8 (1h cooldown)
+    # defaults: check every 2min; ping 1.1.1.1 soft; escalate NM@2 → tailscaled@4 → reboot@8 (1h cooldown)
   };
 
   # services.my-authentik = {
