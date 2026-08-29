@@ -25,6 +25,10 @@ failure ladder:
 Apartment WiFi often blocks ICMP to `1.1.1.1` while Tailscale still works; soft
 mode avoids reboot loops in that case.
 
+Apartment LAN (Beryl in client/WISP → GS108 switch, who is wired vs not) is
+documented in [inventory.md](./inventory.md#apartment-lan-locked). That page is
+docs only and does not require a rebuild.
+
 This does **not** help if the machine is fully powered off or the kernel is
 hard-locked. Prefer **ethernet over WiFi**, and keep **OOB KVM** (or equivalent)
 for total radio / NIC death.
