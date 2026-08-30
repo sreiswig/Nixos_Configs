@@ -41,10 +41,17 @@
   services.harmonia.cache.enable = true;
   virtualisation.waydroid.enable = true;
 
+  # QEMU/KVM via libvirt (virt-manager GUI)
+  virtualisation.libvirtd.enable = true;
+  virtualisation.libvirtd.qemu.swtpm.enable = true;
+  virtualisation.spiceUSBRedirection.enable = true;
+  programs.virt-manager.enable = true;
+
   # Gaming & Entertainment
   # programs.steam.enable = true; # Handled by desktop module
   
   # User Packages specific to this host
+  users.users.sam.extraGroups = [ "kvm" "libvirtd" ];
   users.users.sam.packages = with pkgs; [
     blender
     mermaid-cli
@@ -72,6 +79,7 @@
     vulkan-tools
     impala
     prismlauncher
+    qemu
     (retroarch.withCores (cores: with cores; [
       vba-m
     ]))
