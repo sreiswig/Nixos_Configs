@@ -1,1 +1,1 @@
-Grok_Bot_0.16.0.deb filter=lfs diff=lfs merge=lfs -text
+Grok_Bot_*.deb filter=lfs diff=lfs merge=lfs -text

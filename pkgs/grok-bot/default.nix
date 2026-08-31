@@ -40,10 +40,10 @@
 
 stdenv.mkDerivation (finalAttrs: {
   pname = "grok-bot";
-  version = "0.16.0";
+  version = "0.24.0";
 
   # Local vendor .deb checked into the flake root
-  src = ../../Grok_Bot_0.16.0.deb;
+  src = ../../Grok_Bot_0.24.0.deb;
 
   nativeBuildInputs = [
     dpkg
@@ -111,17 +111,16 @@ stdenv.mkDerivation (finalAttrs: {
     # Normalize the space-containing vendor path
     cp -a "opt/Grok Bot/." "$out/opt/grok-bot/"
 
-    # Desktop entry → stable command name
-    substitute "usr/share/applications/sand.desktop" \
+    # Desktop entry → stable command name (binary renamed sand → grok-bot in 0.24.0)
+    substitute "usr/share/applications/grok-bot.desktop" \
       "$out/share/applications/grok-bot.desktop" \
-      --replace-fail 'Exec="/opt/Grok Bot/sand" %U' "Exec=grok-bot %U" \
-      --replace-fail "Icon=sand" "Icon=grok-bot"
+      --replace-fail 'Exec="/opt/Grok Bot/grok-bot" %U' "Exec=grok-bot %U"
 
-    cp "usr/share/icons/hicolor/1024x1024/apps/sand.png" \
+    cp "usr/share/icons/hicolor/1024x1024/apps/grok-bot.png" \
       "$out/share/icons/hicolor/1024x1024/apps/grok-bot.png"
 
     # chrome-sandbox cannot be setuid in the Nix store; use --no-sandbox
-    makeWrapper "$out/opt/grok-bot/sand" "$out/bin/grok-bot" \
+    makeWrapper "$out/opt/grok-bot/grok-bot" "$out/bin/grok-bot" \
       --prefix LD_LIBRARY_PATH : "$out/opt/grok-bot" \
       --prefix PATH : "${lib.makeBinPath [ xdg-utils ]}" \
       --add-flags "--no-sandbox" \
@@ -132,7 +131,7 @@ stdenv.mkDerivation (finalAttrs: {
 
   meta = {
     description = "Grok Bot desktop agent";
-    homepage = "https://cursor.com";
+    homepage = "https://x.ai/bot";
     license = lib.licenses.unfree;
     platforms = [ "x86_64-linux" ];
     mainProgram = "grok-bot";

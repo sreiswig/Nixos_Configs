@@ -8,6 +8,9 @@ on:
     branches:
       - main
 
+permissions:
+  contents: read
+
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
@@ -25,7 +28,9 @@ jobs:
     needs: check-flake
     runs-on: ubuntu-latest
     strategy:
+      fail-fast: false
       matrix:
+        # Three hosts only for now; asus_rog_1070 and dad_nas are intentionally excluded.
         host: [sam-main, framework13, AIServer]
     steps:
       # v5 (resolved 2026-08-11 via git ls-remote refs/tags/v5 == v5.1.0)

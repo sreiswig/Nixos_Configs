@@ -94,11 +94,12 @@ echo $VAULT_ADDR    # Should be 'https://aiserver.tail93ec7d.ts.net/vault'
 ## Advanced / Automated Testing
 
 ### CI/CD (GitHub Actions)
-We have configured a GitHub Actions workflow (`.github/workflows/ci.yml`) that automatically tests your configuration on every push.
+We have configured a GitHub Actions workflow (`.github/workflows/ci.yml`) that automatically tests your configuration on every push and pull request to `main`.
 
 It performs the following checks:
-1.  **Flake Check:** Verifies syntax and dependency resolution.
-2.  **Dry Build:** Compiles the system configuration for `sam-main`, `framework13`, and `AIServer` to ensure all modules and packages build correctly.
+1.  **Flake Check:** Verifies syntax and dependency resolution (with a committed `flake.lock`).
+2.  **Dry Build:** Compiles the system configuration for a **three-host matrix**: `sam-main`, `framework13`, and `AIServer` (`fail-fast: false` so one host failure does not cancel the others).
+
+`asus_rog_1070` and `dad_nas` remain in the flake but are **intentionally excluded** from the CI matrix for now.
 
 You can view the status of these checks in the "Actions" tab of your GitHub repository.
-

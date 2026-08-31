@@ -1,11 +1,10 @@
-{ config, pkgs, lib, ... }:
+{ config, pkgs, lib, ... }: {
 
-{
   imports = [
     # Shared Modules
     ../../modules/common
     ../../modules/desktop
-    
+
     # GPU Modules
     ../../modules/hardware/gpu/amd_gpu.nix
     ../../modules/hardware/gpu/nvidia_gpu.nix
@@ -13,6 +12,8 @@
     ../../modules/services/opentelemetry.nix
     ../../modules/services/monitoring.nix
     ../../modules/services/kubernetes.nix
+    ../../modules/services/ai-dispatch-caddy.nix
+    ../../modules/services/network-self-heal.nix
     # ../../modules/services/authentik.nix
 
     # Local Configuration
@@ -30,7 +31,19 @@
     enable = true;
     grafanaEnvFile = "/var/lib/grafana/grafana.env";
   };
-  
+
+  # Heal default route + Tailscale when the box falls off the network.
+  # wifiInterface left unset until Sam confirms the name (`ip link` / journal).
+  # Ethernet (enp37s0f1np1) is preferred over WiFi; OOB KVM still best for total radio death.
+  # pingMode defaults to "soft": ICMP fail is WARN-only while Tailscale is online.
+  services.my-network-self-heal = {
+    enable = true;
+    # wifiInterface = "wlan0"; # set once known
+    requireTailscale = true;
+    escalateToReboot = true;
+    # defaults: check every 2min; ping 1.1.1.1 soft; escalate NM@2 → tailscaled@4 → reboot@8 (1h cooldown)
+  };
+
   # services.my-authentik = {
   #   enable = true;
   #   environmentFile = "/var/lib/authentik/authentik.env";
@@ -50,7 +63,7 @@
   # XRDP & Headless-ish Setup
   services.xrdp.enable = true;
   services.xrdp.defaultWindowManager = "startplasma-x11";
-  
+
   # Services from original configuration.nix
   services.caddy = {
     enable = true;
@@ -93,10 +106,7 @@
             reverse_proxy 127.0.0.1:8080
           }
 
-          # Proxy for n8n (Default catch-all)
-          handle {
-            reverse_proxy 127.0.0.1:5678
-          }
+          # No catch-all (n8n removed). Unmatched paths get Caddy's default response.
         '';
       };
       "aiserver.tail93ec7d.ts.net:8474" = {
@@ -127,19 +137,6 @@
   };
 
   environment.variables.VAULT_ADDR = "https://aiserver.tail93ec7d.ts.net/vault";
-
-  services.n8n = {
-    enable = true;
-    environment = {
-      N8N_PROTOCOL = "https";
-      N8N_HOST = "aiserver.tail93ec7d.ts.net";
-      N8N_SECURE_COOKIE = "true";
-      WEBHOOK_URL = lib.mkForce "https://aiserver.tail93ec7d.ts.net";
-      N8N_RUNNERS_AUTH_TOKEN_FILE = "/var/lib/n8n/auth-token";
-    };
-  };
-  
-  # n8n Overlay/Override
 
   services.tailscale.permitCertUid = "caddy";
 
@@ -198,7 +195,7 @@
     settings = {
       listen = "[::]:8080";
       database.url = "postgresql:///atticd?host=/run/postgresql";
-      
+
       # Storage settings (local filesystem by default)
       storage = {
         type = "local";
