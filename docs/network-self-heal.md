@@ -3,10 +3,20 @@
 Conservative watchdog that checks **default IPv4 route**, **ping to an uplink
 target** (default `1.1.1.1`, not the LAN gateway), and optionally **Tailscale
 online** (`tailscale status --json` → `Self.Online`, or a non-empty
-`tailscale ip -4`). On sustained **hard** failure it escalates:
+`tailscale ip -4`).
 
-1. Restart **NetworkManager** (or bounce `wifiInterface` if NM is absent)
-2. Restart **tailscaled**
+**Every tick** (before counting a hard failure) it tries a light reconnect:
+
+1. If a WiFi iface is unassociated: `nmcli radio wifi on`, then
+   `nmcli device connect` / saved `802-11-wireless` profiles. No SSID or
+   password lives in this flake — NetworkManager must already have the
+   apartment profile (autoconnect).
+2. If Tailscale is down: `tailscale up` (existing node login; no auth key).
+
+On sustained **hard** failure it then escalates:
+
+1. Restart **NetworkManager** (or bounce `wifiInterface` if NM is absent), then retry WiFi connect
+2. Restart **tailscaled**, then `tailscale up` again
 3. Controlled **reboot** (high threshold + cooldown under
    `/var/lib/network-self-heal` so boxes do not reboot-loop)
 
@@ -41,10 +51,10 @@ Module: [`modules/services/network-self-heal.nix`](../modules/services/network-s
 Option namespace: `services.my-network-self-heal` (matches other `services.my-*` modules).
 
 Enabled on AIServer in [`hosts/AIServer/default.nix`](../hosts/AIServer/default.nix)
-with Tailscale required, reboot escalation on, and default `pingMode = "soft"`
-(apartment-WiFi safe). **`wifiInterface` is left unset** until the iface name
-is known — Tailscale + default-route healing still runs (NM / `tailscaled` /
-reboot).
+with Tailscale required, reboot escalation on, default `pingMode = "soft"`
+(apartment-WiFi safe), and `wifiInterface = "wlp38s0"` (from
+`nixos-generate-config`). If that name is missing at runtime the check
+auto-detects via `nmcli` / `iw dev`.
 
 ### Apply
 
@@ -56,14 +66,16 @@ sudo nixos-rebuild switch --flake .#AIServer
 # or: make switch   # when /etc/hostname maps to AIServer
 ```
 
-### Optional: set WiFi iface once known
+### WiFi iface
+
+AIServer is set to `wlp38s0`. Confirm with:
 
 ```bash
 ip -br link
 # journalctl -u NetworkManager -b | rg -i wlan
 ```
 
-Then in `hosts/AIServer/default.nix`:
+Override in `hosts/AIServer/default.nix` if the name changes:
 
 ```nix
 services.my-network-self-heal = {
@@ -74,8 +86,12 @@ services.my-network-self-heal = {
 };
 ```
 
-When `wifiInterface` is set, `disableWifiPowersave` (default `true`) runs
-`iw dev <iface> set power_save off` each check.
+When an iface is known, `disableWifiPowersave` (default `true`) runs
+`iw dev <iface> set power_save off` each check. Unassociated WiFi is
+reconnected from saved NetworkManager profiles (first-time WiFi still
+needs a manual `nmcli connection add` / GUI login on the box). First-time
+Tailscale still needs a one-time `tailscale up` / login; after that the
+watchdog only re-runs `tailscale up`.
 
 ### Useful options
 
@@ -84,9 +100,10 @@ When `wifiInterface` is set, `disableWifiPowersave` (default `true`) runs
 | `checkInterval` | `"2min"` | systemd `OnUnitActiveSec` |
 | `pingTarget` | `"1.1.1.1"` | Cloudflare DNS; detects WAN loss better than gateway ping |
 | `pingMode` | `"soft"` | `"soft"` / `"hard"` / `"off"` — see Soft ping vs hard escalation |
-| `requireTailscale` | `true` | JSON `Self.Online` or `tailscale ip -4` |
+| `requireTailscale` | `true` | JSON `Self.Online` or `tailscale ip -4`; also `tailscale up` each tick when down |
+| `wifiInterface` | `null` (AIServer: `wlp38s0`) | auto-detects if unset/missing; reconnects saved NM WiFi profiles |
 | `failuresBeforeNetworkRestart` | `2` | NM restart / iface bounce |
-| `failuresBeforeTailscaleRestart` | `4` | `systemctl restart tailscaled` |
+| `failuresBeforeTailscaleRestart` | `4` | `systemctl restart tailscaled` then `tailscale up` |
 | `failuresBeforeReboot` | `8` | only if `escalateToReboot` |
 | `rebootCooldown` | `"1h"` | persisted in `/var/lib/network-self-heal/last_reboot` |
 
@@ -140,6 +157,18 @@ if [[ -n "$WIFI_IFACE" && "$DISABLE_PS" == "1" ]]; then
   iw dev "$WIFI_IFACE" set power_save off 2>/dev/null || true
 fi
 
+if [[ -n "$WIFI_IFACE" ]] && ! iw dev "$WIFI_IFACE" link 2>/dev/null | grep -q "Connected to"; then
+  log "WiFi not associated on $WIFI_IFACE"
+  if command -v nmcli >/dev/null 2>&1; then
+    nmcli radio wifi on >/dev/null 2>&1 || true
+    timeout 20 nmcli device connect "$WIFI_IFACE" >/dev/null 2>&1 || true
+    sleep 3
+  else
+    ip link set "$WIFI_IFACE" down || true; sleep 2
+    ip link set "$WIFI_IFACE" up || true
+  fi
+fi
+
 hard=0
 route_ok=1
 if ! ip -4 route show default | grep -q .; then
@@ -155,7 +184,19 @@ if command -v tailscale >/dev/null 2>&1; then
 fi
 
 if [[ "$REQUIRE_TS" == "1" && "$ts_online" != "1" ]]; then
-  log "FAIL: Tailscale not online / no IPv4"; hard=1
+  log "attempt: tailscale up"
+  timeout 25 tailscale up || true
+  sleep 2
+  ts_online=0
+  if command -v tailscale >/dev/null 2>&1; then
+    if tailscale status --json 2>/dev/null | jq -e '.Self.Online == true' >/dev/null 2>&1 \
+       || [[ -n "$(tailscale ip -4 2>/dev/null || true)" ]]; then
+      ts_online=1
+    fi
+  fi
+  if [[ "$ts_online" != "1" ]]; then
+    log "FAIL: Tailscale not online / no IPv4"; hard=1
+  fi
 fi
 
 if [[ "$PING_MODE" != "off" ]] && ! ping -c 1 -W 3 "$PING_TARGET" >/dev/null 2>&1; then

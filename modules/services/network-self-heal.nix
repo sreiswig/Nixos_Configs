@@ -1,4 +1,5 @@
 # Conservative WiFi / default-route / Tailscale self-heal watchdog.
+# Each tick: reconnect WiFi if unassociated, `tailscale up` if offline.
 # Escalates: NetworkManager (or iface bounce) → tailscaled → optional reboot.
 # Does NOT help if the machine is powered off or hard-locked; keep OOB KVM.
 { config, pkgs, lib, ... }:
@@ -36,6 +37,7 @@ let
       iw
       tailscale
       gnugrep
+      networkmanager
     ];
     text = ''
       set -euo pipefail
@@ -73,12 +75,127 @@ let
         echo "$1" > "$FAILURES_FILE"
       }
 
-      # Optional: keep WiFi out of powersave (common flaky-AP cause).
-      if [[ -n "$WIFI_IFACE" && "$DISABLE_PS" == "1" ]]; then
-        if iw dev "$WIFI_IFACE" info >/dev/null 2>&1; then
-          iw dev "$WIFI_IFACE" set power_save off 2>/dev/null || true
+      iface_exists() {
+        local iface="$1"
+        [[ -n "$iface" ]] && ip link show "$iface" >/dev/null 2>&1
+      }
+
+      detect_wifi_iface() {
+        local dev typ rest
+        if command -v nmcli >/dev/null 2>&1; then
+          while IFS=: read -r dev typ rest; do
+            if [[ "$typ" == "wifi" && -n "$dev" ]]; then
+              echo "$dev"
+              return 0
+            fi
+          done < <(nmcli -t -f DEVICE,TYPE device status 2>/dev/null || true)
         fi
-      fi
+        local a b
+        while read -r a b; do
+          if [[ "$a" == "Interface" && -n "$b" ]]; then
+            echo "$b"
+            return 0
+          fi
+        done < <(iw dev 2>/dev/null || true)
+        return 1
+      }
+
+      resolve_wifi_iface() {
+        if [[ -n "$WIFI_IFACE" ]]; then
+          if iface_exists "$WIFI_IFACE"; then
+            return 0
+          fi
+          log "configured wifiInterface=$WIFI_IFACE not present; auto-detecting"
+          WIFI_IFACE=""
+        fi
+        local detected
+        detected="$(detect_wifi_iface || true)"
+        if [[ -n "$detected" ]]; then
+          WIFI_IFACE="$detected"
+          log "auto-detected wifi iface $WIFI_IFACE"
+        fi
+      }
+
+      wifi_associated() {
+        local iface="$1"
+        local st
+        [[ -z "$iface" ]] && return 1
+        if command -v nmcli >/dev/null 2>&1; then
+          st="$(nmcli -t -f GENERAL.STATE device show "$iface" 2>/dev/null | head -n1 || true)"
+          if [[ "$st" == *":100 (connected)"* ]]; then
+            return 0
+          fi
+        fi
+        if command -v iw >/dev/null 2>&1 \
+          && iw dev "$iface" link 2>/dev/null | grep -q "Connected to"; then
+          return 0
+        fi
+        return 1
+      }
+
+      reconnect_wifi() {
+        local iface="$1"
+        local name typ
+        log "attempt: WiFi reconnect ($iface)"
+
+        if command -v nmcli >/dev/null 2>&1; then
+          nmcli radio wifi on >/dev/null 2>&1 || true
+          nmcli networking on >/dev/null 2>&1 || true
+
+          if [[ -n "$iface" ]]; then
+            if timeout 20 nmcli device connect "$iface" >/dev/null 2>&1; then
+              log "nmcli device connect $iface succeeded"
+              return 0
+            fi
+            log "nmcli device connect $iface failed; trying saved WiFi connections"
+          fi
+
+          while IFS=: read -r name typ; do
+            [[ -z "$name" ]] && continue
+            if [[ "$typ" != "802-11-wireless" ]]; then
+              continue
+            fi
+            log "attempt: nmcli connection up $name"
+            if timeout 20 nmcli connection up "$name" >/dev/null 2>&1; then
+              log "nmcli connection up $name succeeded"
+              return 0
+            fi
+          done < <(nmcli -t -f NAME,TYPE connection show 2>/dev/null || true)
+
+          log "WiFi reconnect via NetworkManager failed"
+          return 1
+        fi
+
+        if [[ -n "$iface" ]]; then
+          log "attempt: bounce iface $iface (no nmcli)"
+          ip link set "$iface" down || true
+          sleep 2
+          ip link set "$iface" up || true
+          return 0
+        fi
+
+        log "no NetworkManager and no wifi iface; cannot reconnect WiFi"
+        return 1
+      }
+
+      bring_up_tailscale() {
+        log "attempt: tailscale up"
+        if timeout 25 tailscale up; then
+          log "tailscale up succeeded"
+          return 0
+        fi
+        log "tailscale up failed (not logged in, or daemon not ready)"
+        return 1
+      }
+
+      # Optional: keep WiFi out of powersave (common flaky-AP cause).
+      disable_wifi_powersave() {
+        if [[ -n "$WIFI_IFACE" && "$DISABLE_PS" == "1" ]]; then
+          if iw dev "$WIFI_IFACE" info >/dev/null 2>&1; then
+            iw dev "$WIFI_IFACE" set power_save off 2>/dev/null || true
+          fi
+        fi
+      }
 
       check_default_route() {
         ip -4 route show default | grep -q .
@@ -115,6 +232,24 @@ let
         fi
         return 1
       }
+
+      resolve_wifi_iface
+      disable_wifi_powersave
+
+      # Light heal first: associate WiFi and bring Tailscale up before counting
+      # a hard failure. Uses saved NM connections / existing tailscale login;
+      # no SSIDs, passwords, or auth keys in this flake.
+      if [[ -n "$WIFI_IFACE" ]] && ! wifi_associated "$WIFI_IFACE"; then
+        log "WiFi not associated on $WIFI_IFACE"
+        reconnect_wifi "$WIFI_IFACE" || true
+        sleep 3
+        disable_wifi_powersave
+      fi
+
+      if [[ "$REQUIRE_TS" == "1" ]] && ! tailscale_online; then
+        bring_up_tailscale || true
+        sleep 2
+      fi
 
       # Hard failures drive the escalation ladder. Soft ping (default) only
       # warns when Tailscale proves connectivity and a default route exists —
@@ -166,6 +301,10 @@ let
           && systemctl cat NetworkManager.service >/dev/null 2>&1; then
           log "escalation: restarting NetworkManager"
           systemctl restart NetworkManager.service || true
+          sleep 3
+          if [[ -n "$WIFI_IFACE" ]]; then
+            reconnect_wifi "$WIFI_IFACE" || true
+          fi
         elif [[ -n "$WIFI_IFACE" ]]; then
           log "escalation: bouncing iface $WIFI_IFACE"
           ip link set "$WIFI_IFACE" down || true
@@ -179,6 +318,8 @@ let
       restart_tailscale() {
         log "escalation: restarting tailscaled"
         systemctl restart tailscaled.service || true
+        sleep 2
+        bring_up_tailscale || true
       }
 
       maybe_reboot() {
@@ -260,7 +401,11 @@ in
     requireTailscale = mkOption {
       type = types.bool;
       default = true;
-      description = "Also require Tailscale Self.Online (or a non-empty tailscale IPv4).";
+      description = ''
+        Require Tailscale Self.Online (or a non-empty tailscale IPv4). When
+        Tailscale is down, run `tailscale up` each check (uses the existing
+        node login; does not pass an auth key).
+      '';
     };
 
     wifiInterface = mkOption {
@@ -268,9 +413,10 @@ in
       default = null;
       example = "wlan0";
       description = ''
-        Optional WiFi interface name. When null/empty, WiFi-specific actions
-        (powersave off, iface bounce) are skipped; NetworkManager restart and
-        Tailscale/reboot escalation still apply.
+        Optional WiFi interface name. When null/empty or the named iface is
+        missing, the check auto-detects via nmcli / `iw dev`. Unassociated
+        WiFi is reconnected each tick from saved NetworkManager profiles
+        (no SSID/password in this flake).
       '';
     };
 
@@ -334,6 +480,8 @@ in
         ExecStart = getExe checkScript;
         # State for failure counters + reboot cooldown (/var/lib/network-self-heal).
         StateDirectory = "network-self-heal";
+        # Light reconnects + NM/tailscaled restarts need time; reboot is last-resort.
+        TimeoutStartSec = "90s";
         # Root needed for NM/iface/tailscaled/reboot.
       };
     };
