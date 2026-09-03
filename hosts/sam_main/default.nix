@@ -57,7 +57,6 @@
     mermaid-cli
     fprintd
     hugo
-    kitty
     nixfmt
     vscode-fhs
     minikube
