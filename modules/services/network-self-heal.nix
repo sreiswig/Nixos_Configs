@@ -370,6 +370,16 @@ in
       '';
     };
 
+    onBootSec = mkOption {
+      type = types.str;
+      default = "30s";
+      description = ''
+        systemd timer OnBootSec delay before the first post-boot check.
+        The check unit is also wantedBy multi-user.target so it runs as soon
+        as NetworkManager/tailscaled are up; this timer is a second pass.
+      '';
+    };
+
     pingTarget = mkOption {
       type = types.str;
       default = "1.1.1.1";
@@ -473,7 +483,8 @@ in
     systemd.services.network-self-heal = {
       description = "WiFi/Tailscale network self-heal check";
       after = [ "network-pre.target" "NetworkManager.service" "tailscaled.service" ];
-      wants = [ "network-pre.target" ];
+      wants = [ "network-pre.target" "NetworkManager.service" "tailscaled.service" ];
+      wantedBy = [ "multi-user.target" ];
       serviceConfig = {
         Type = "oneshot";
         ExecStart = getExe checkScript;
@@ -489,7 +500,7 @@ in
       description = "Periodic WiFi/Tailscale network self-heal watchdog";
       wantedBy = [ "timers.target" ];
       timerConfig = {
-        OnBootSec = "3min";
+        OnBootSec = cfg.onBootSec;
         OnUnitActiveSec = cfg.checkInterval;
         AccuracySec = "30s";
         Persistent = true;

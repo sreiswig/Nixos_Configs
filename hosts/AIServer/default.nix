@@ -1,4 +1,7 @@
-{ config, pkgs, lib, ... }: {
+{ config, pkgs, lib, ... }:
+let
+  wifiInterface = "wlp38s0";
+in {
 
   imports = [
     # Shared Modules
@@ -38,11 +41,120 @@
   # pingMode defaults to "soft": ICMP fail is WARN-only while Tailscale is online.
   services.my-network-self-heal = {
     enable = true;
-    wifiInterface = "wlp38s0";
+    inherit wifiInterface;
     requireTailscale = true;
     escalateToReboot = true;
     # defaults: ping 1.1.1.1 soft; escalate NM@2 → tailscaled@4 → reboot@8 (1h cooldown)
   };
+
+  # Always-on: WiFi + Tailscale at boot, no sleep, SSH on the tailnet.
+  # WiFi SSID/PSK stay in NetworkManager system connections (not this flake).
+  networking.networkmanager.wifi = {
+    powersave = false;
+    scanRandMacAddress = false;
+    macAddress = "preserve";
+  };
+  networking.networkmanager.connectionConfig."connection.autoconnect-retries" = 0;
+  networking.networkmanager.dispatcherScripts = [
+    {
+      type = "basic";
+      source = pkgs.writeShellScript "tailscale-up-on-nm" ''
+        case "$2" in
+          up|connectivity-change)
+            ${lib.getExe pkgs.tailscale} up >/dev/null 2>&1 || true
+            ;;
+        esac
+      '';
+    }
+  ];
+
+  systemd.sleep.settings.Sleep = {
+    AllowSuspend = "no";
+    AllowHibernation = "no";
+    AllowHybridSleep = "no";
+    AllowSuspendThenHibernate = "no";
+  };
+  services.logind.settings.Login = {
+    HandleLidSwitch = "ignore";
+    HandleLidSwitchExternalPower = "ignore";
+    HandleLidSwitchDocked = "ignore";
+    HandleSuspendKey = "ignore";
+    HandleHibernateKey = "ignore";
+    IdleAction = "ignore";
+  };
+
+  systemd.services.wifi-autoconnect = {
+    description = "Enable WiFi radio and connect saved NetworkManager profiles";
+    after = [ "NetworkManager.service" ];
+    wants = [ "NetworkManager.service" ];
+    wantedBy = [ "multi-user.target" ];
+    path = with pkgs; [ networkmanager coreutils iproute2 iw gnugrep ];
+    serviceConfig = {
+      Type = "oneshot";
+      RemainAfterExit = true;
+      TimeoutStartSec = "60s";
+    };
+    script = ''
+      set -u
+      nmcli radio wifi on || true
+      nmcli networking on || true
+
+      i=0
+      while [ "$i" -lt 10 ]; do
+        if nmcli -t -f DEVICE,TYPE device status 2>/dev/null | grep -q ':wifi$'; then
+          break
+        fi
+        i=$((i + 1))
+        sleep 1
+      done
+
+      nmcli -t -f UUID,TYPE connection show 2>/dev/null | while IFS=: read -r uuid typ; do
+        [ "$typ" = "802-11-wireless" ] || continue
+        [ -n "$uuid" ] || continue
+        nmcli connection modify "$uuid" connection.autoconnect yes || true
+        nmcli connection modify "$uuid" connection.permissions "" || true
+      done
+
+      iface="${wifiInterface}"
+      if [ -n "$iface" ] && ip link show "$iface" >/dev/null 2>&1; then
+        iw dev "$iface" set power_save off 2>/dev/null || true
+        state="$(nmcli -t -f GENERAL.STATE device show "$iface" 2>/dev/null | head -n1 || true)"
+        case "$state" in
+          *":100 (connected)"*) exit 0 ;;
+        esac
+        timeout 25 nmcli device connect "$iface" || true
+      fi
+    '';
+  };
+
+  systemd.services.tailscale-up = {
+    description = "Bring Tailscale online using the existing node login";
+    after = [ "tailscaled.service" "wifi-autoconnect.service" "NetworkManager.service" ];
+    requires = [ "tailscaled.service" ];
+    wants = [ "wifi-autoconnect.service" ];
+    wantedBy = [ "multi-user.target" ];
+    path = [ pkgs.tailscale pkgs.coreutils ];
+    serviceConfig = {
+      Type = "oneshot";
+      RemainAfterExit = true;
+      TimeoutStartSec = "90s";
+    };
+    script = ''
+      set -u
+      i=0
+      while [ "$i" -lt 5 ]; do
+        if timeout 10 tailscale up; then
+          exit 0
+        fi
+        i=$((i + 1))
+        sleep 2
+      done
+      echo "tailscale up failed after retries (not logged in, or no uplink yet)" >&2
+      exit 1
+    '';
+  };
+
+  services.tailscale.openFirewall = true;
 
   # services.my-authentik = {
   #   enable = true;
@@ -60,9 +172,12 @@
   networking.hostName = "AI_Server";
   boot.initrd.kernelModules = [ "amdgpu" ];
 
-  # XRDP & Headless-ish Setup
-  services.xrdp.enable = true;
-  services.xrdp.defaultWindowManager = "startplasma-x11";
+  # XRDP for Remmina (Plasma X11 session; separate from any local SDDM login).
+  services.xrdp = {
+    enable = true;
+    openFirewall = true;
+    defaultWindowManager = "startplasma-x11";
+  };
 
   # Services from original configuration.nix
   services.caddy = {
@@ -140,9 +255,12 @@
 
   services.tailscale.permitCertUid = "caddy";
 
-  # SSH Overrides for AI Server
+  # SSH on all interfaces (firewall opens 22). tailscale0 is trusted below,
+  # so MagicDNS / Tailscale IP SSH works once tailscale-up has succeeded.
   services.openssh = {
     enable = true;
+    startWhenNeeded = false;
+    openFirewall = true;
     settings = {
       PasswordAuthentication = true;
       PermitRootLogin = "prohibit-password";
@@ -223,7 +341,8 @@
     }];
   };
 
-  networking.firewall.interfaces."enp37s0f1np1".allowedTCPPorts = [ 3389 22 8000 ];
+  # 22/3389 are opened globally by OpenSSH/xrdp.openFirewall; 8000 stays LAN-only.
+  networking.firewall.interfaces."enp37s0f1np1".allowedTCPPorts = [ 8000 ];
   networking.firewall.trustedInterfaces = [ "tailscale0" ];
 
   users.users.sam.packages = with pkgs; [
