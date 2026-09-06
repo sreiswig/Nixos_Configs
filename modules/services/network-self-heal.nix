@@ -272,8 +272,7 @@ let
       if [[ "$PING_MODE" == "off" ]]; then
         : # skip ICMP probe
       elif ! check_ping; then
-        if [[ "$PING_MODE" == "soft" && "$REQUIRE_TS" == "1" && "$route_ok" == "1" ]] \
-          && tailscale_online; then
+        if [[ "$PING_MODE" == "soft" && "$REQUIRE_TS" == "1" && "$route_ok" == "1" && "$ts_ok" == "1" ]]; then
           log "WARN: soft ping fail to $PING_TARGET (Tailscale online + default route OK; not escalating)"
         else
           log "FAIL: ping $PING_TARGET"
