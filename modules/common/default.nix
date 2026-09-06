@@ -55,7 +55,6 @@
   
   environment.systemPackages = with pkgs; [
     git
-    git-lfs
     gnumake
     btop
     ripgrep
