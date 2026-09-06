@@ -82,6 +82,12 @@ in {
     HandleHibernateKey = "ignore";
     IdleAction = "ignore";
   };
+  # Belt-and-suspenders: even if Plasma/PowerDevil requests sleep, targets stay off.
+  # Live effect needs `nh os switch` (or equivalent) on AIServer — merge alone is not enough.
+  systemd.targets.sleep.enable = false;
+  systemd.targets.suspend.enable = false;
+  systemd.targets.hibernate.enable = false;
+  systemd.targets.hybrid-sleep.enable = false;
 
   systemd.services.wifi-autoconnect = {
     description = "Enable WiFi radio and connect saved NetworkManager profiles";
