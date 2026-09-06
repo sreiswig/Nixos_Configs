@@ -42,7 +42,7 @@ stdenv.mkDerivation (finalAttrs: {
   pname = "grok-bot";
   version = "0.24.0";
 
-  # Local vendor .deb checked into the flake root
+  # Local vendor .deb at the flake root (Git LFS; flake.nix sets inputs.self.lfs).
   src = ../../Grok_Bot_0.24.0.deb;
 
   nativeBuildInputs = [

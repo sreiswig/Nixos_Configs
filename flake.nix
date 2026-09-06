@@ -2,6 +2,10 @@
   description = "NixOS Configuration Flake";
 
   inputs = {
+    # Vendor Grok_Bot_*.deb is Git LFS. Without this, flakes copy the 134-byte
+    # pointer and dpkg-deb fails ("not a Debian format archive").
+    self.lfs = true;
+
     nixpkgs.url = "github:nixos/nixpkgs/nixos-unstable";
     home-manager.url = "github:nix-community/home-manager";
     home-manager.inputs.nixpkgs.follows = "nixpkgs";
