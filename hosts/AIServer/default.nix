@@ -232,7 +232,6 @@
     google-chrome
     kdePackages.kate
     grok-build
-    grok-bot
     git-lfs
   ];
 
