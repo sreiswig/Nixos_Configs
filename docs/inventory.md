@@ -13,7 +13,7 @@ External machines (Spark, Windows) live here only until they have a flake host.
 | framework13 | `framework13` | `framework13` | NixOS | _TBD_ | Laptop |
 | dad_nas | `dad_nas` | `queennas` / `queennas.tail93ec7d.ts.net` | NixOS | _TBD_ | Media NAS | Jellyfin, Immich; TS IP `100.74.70.2` in Caddy |
 | asus_rog_1070 | `asus_rog_1070` | `asus-rog-1070` | NixOS | _TBD_ | Secondary GPU desktop | Ollama CUDA |
-| Spark | — | _TBD MagicDNS_ | non-NixOS | _TBD_ | Primary LLM (vLLM) | Not in flake |
+| Spark | — | `spark-48e5` / `spark-48e5.tail93ec7d.ts.net` | non-NixOS (Ubuntu) | _TBD_ | Primary LLM (vLLM) | Not in flake; TS IP `100.75.241.49`; xrdp :3389 over Tailscale |
 | Windows | — | _TBD_ | Windows | _TBD_ | Client | Not in flake |
 
 ## Hostname ↔ flake attr
@@ -40,7 +40,7 @@ Apartment WiFi → **Gl.iNet Beryl** (client / WISP mode) → **Netgear GS108**
 | Raspberry Pi | yes | Not a flake host; no further identity recorded here |
 | AIServer | yes | Services hub |
 | Windows | no | Still off the switch |
-| Spark | no | Still off the switch. MagicDNS hostname and vLLM `served-model-name` are Sam-only — leave TBD |
+| Spark | no | Still off the switch. MagicDNS `spark-48e5.tail93ec7d.ts.net`; vLLM `served-model-name` is Sam-only — leave TBD |
 
 ### Preferred wiring
 

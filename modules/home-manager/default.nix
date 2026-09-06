@@ -34,6 +34,30 @@
     disablepasswordstoring=0
   '';
 
+  # Remmina → Spark (DGX) over Tailscale MagicDNS (xrdp :3389, self-signed TLS).
+  # Username is the Spark Linux login (often nvidia on DGX OS), not the Tailscale identity.
+  xdg.dataFile."remmina/group_rdp_spark_spark-48e5-tail93ec7d-ts-net.remmina".text = ''
+    [remmina]
+    protocol=RDP
+    name=Spark
+    group=Homelab
+    server=spark-48e5.tail93ec7d.ts.net
+    username=
+    ignore-tls-errors=1
+    cert_ignore=1
+    security=tls
+    colordepth=32
+    quality=9
+    resolution_mode=2
+    window_maximize=1
+    sound=off
+    disableclipboard=0
+    network=lan
+    preferipv6=0
+    gateway_usage=0
+    disablepasswordstoring=0
+  '';
+
   # OpenCode configuration
   programs.opencode = {
     enable = true;
