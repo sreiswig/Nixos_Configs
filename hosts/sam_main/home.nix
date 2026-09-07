@@ -6,13 +6,7 @@
 
   programs.home-manager.enable = true;
 
-  programs.kitty = {
-    enable = true;
-    settings = {
-      background_opacity = "0.85";
-      dynamic_background_opacity = "yes";
-    };
-  };
+  # Kitty removed (escape-sequence RCE advisories). Konsole is in modules/desktop.
 
   # Optional Hyprland session for sam_main.
   # Plasma 6 + SDDM (modules/desktop) stays the login default — this only supplies a
@@ -66,7 +60,7 @@
         {
           _args = [
             (lib.generators.mkLuaInline "mod .. \" + RETURN\"")
-            (lib.generators.mkLuaInline "hl.dsp.exec_cmd(\"kitty\")")
+            (lib.generators.mkLuaInline "hl.dsp.exec_cmd(\"konsole\")")
           ];
         }
         {
