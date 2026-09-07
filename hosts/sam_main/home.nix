@@ -6,11 +6,6 @@
 
   programs.home-manager.enable = true;
 
-  programs.kitty = {
-    enable = true;
-    settings = {
-      background_opacity = "0.85";
-      dynamic_background_opacity = "yes";
-    };
-  };
+  # Kitty removed (escape-sequence RCE advisories, e.g. GHSA-w98g-hpvr-r332 /
+  # CVE-2026-42851 and related). Use Konsole from modules/desktop instead.
 }
