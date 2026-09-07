@@ -21,7 +21,8 @@
 
   networking.hostName = "sam_nixos";
 
-  # Hyprland
+  # Hyprland is an optional SDDM session. Plasma 6 + SDDM (modules/desktop) stays default.
+  # Session config is managed by home-manager (hosts/sam_main/home.nix → hyprland.lua).
   programs.hyprland.enable = true;
   environment.sessionVariables = {
     NIXOS_OZONE_WL = "1";
