@@ -263,12 +263,14 @@ in {
 
   # SSH on all interfaces (firewall opens 22). tailscale0 is trusted below,
   # so MagicDNS / Tailscale IP SSH works once tailscale-up has succeeded.
+  # Keys only: PasswordAuthentication=false matches modules/common (mkDefault).
+  # Do not re-enable password SSH on a LAN-adjacent always-on box.
   services.openssh = {
     enable = true;
     startWhenNeeded = false;
     openFirewall = true;
     settings = {
-      PasswordAuthentication = true;
+      PasswordAuthentication = false;
       PermitRootLogin = "prohibit-password";
       UseDns = false;
       X11Forwarding = false;
@@ -347,8 +349,10 @@ in {
     }];
   };
 
-  # 22/3389 are opened globally by OpenSSH/xrdp.openFirewall; 8000 stays LAN-only.
-  networking.firewall.interfaces."enp37s0f1np1".allowedTCPPorts = [ 8000 ];
+  # 22/3389 are opened globally by OpenSSH/xrdp.openFirewall.
+  # Dispatch API stays on 127.0.0.1:8000; reach it via Caddy on the Tailnet
+  # (https://dispatch.tail93ec7d.ts.net/api) — do not open :8000 on LAN ethernet.
+  # trustedInterfaces: tailscale0 is the trusted path until Dispatch has real auth.
   networking.firewall.trustedInterfaces = [ "tailscale0" ];
 
   users.users.sam.packages = with pkgs; [
