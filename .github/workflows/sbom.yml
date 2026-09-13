@@ -1,6 +1,8 @@
 # Free-tier CycloneDX SBOM via Syft (anchore/sbom-action)
 # plus Grype vuln scan of that SBOM.
 # Artifact only — do not commit generated SBOM / Grype blobs.
+# Filesystem scan of the flake/repo tree only — not a full nix closure SBOM.
+# Grype of that tree SBOM will be sparse vs a nix closure scan.
 # No paid GHAS / Dependency Review / code-scanning SARIF upload.
 # dependency-snapshot left false.
 name: SBOM
@@ -31,7 +33,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - name: Generate CycloneDX SBOM (Syft)
+      - name: Generate CycloneDX SBOM (Syft, filesystem — not nix closure)
         uses: anchore/sbom-action@3ad7283483fc7af8ff2b4ea19663c2d5ca935e26 # v0.24.2
         with:
           path: .
