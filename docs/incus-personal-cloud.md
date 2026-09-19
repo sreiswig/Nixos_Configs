@@ -1,6 +1,15 @@
 # Incus personal cloud (plan)
 
-Status: **plan only** — do not enable Incus on any host until Sam approves Slice A and merges a follow-up enablement PR. Agents do not run `nh os switch`.
+Status: **Slice A enablement PR open** — module + placeholder host `incus_cloud` (not AIServer). Sam must fill hostname / hardware / NIC / pool disk before first `nh os switch`. Agents do not switch. Do not merge until Sam asks.
+
+**Sam still needed:**
+1. Which physical machine becomes `incus_cloud` (new box vs repurpose — **not** AIServer / Spark)
+2. Final `networking.hostName` + Tailscale MagicDNS
+3. Replace `hosts/incus_cloud/hardware-configuration.nix` via `nixos-generate-config`
+4. Optional: dedicated disk path for `services.my-incus-host.poolSource` (default dir under `/var/lib/incus`)
+
+**Module:** `modules/services/incus-host.nix` → `services.my-incus-host.enable` (default false; true only on `hosts/incus_cloud`).
+
 
 Locks (Chief of Staff / Sam, 2026-09-19):
 
@@ -90,7 +99,7 @@ Tailscale is the human/VPC path to the **host**, not hairpin into every instance
 
 ### Host wiring
 
-- New `hosts/<dedicated>/default.nix` (or Sam-approved `asus_rog_1070`) imports the module with `enable = true`
+- Placeholder `hosts/incus_cloud/default.nix` imports the module with `enable = true` (stub hardware until Sam assigns a box)
 - **Do not** import/enable on `hosts/AIServer` in Slice A
 
 ### Plan B (AIServer) — only if Sam insists
