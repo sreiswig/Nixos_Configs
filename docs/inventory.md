@@ -10,7 +10,7 @@ External machines (Spark, Windows) live here only until they have a flake host.
 
 | Host | Flake attr | Hostname / MagicDNS | Platform | SMBIOS product / key PCI | Role | Notes |
 |------|------------|---------------------|----------|--------------------------|------|-------|
-| AIServer | `AIServer` | `AI_Server` / `aiserver.tail93ec7d.ts.net` | NixOS | _TBD (facter)_ | App/services hub | Caddy, Vault, Gitea, Attic, monitoring, K3s, [network self-heal](./network-self-heal.md), always-on (no sleep in flake), …  **Incus Slice A (Sam override)** on host; see [incus-personal-cloud.md](./incus-personal-cloud.md). |
+| AIServer | `AIServer` | `AI_Server` / `aiserver.tail93ec7d.ts.net` | NixOS | _TBD (facter)_ | App/services hub | Caddy, Vault, Gitea, Attic, monitoring, K3s, [network self-heal](./network-self-heal.md), always-on (no sleep in flake), …  **Incus Slice A (Sam override; AI containers/VMs, host k3s kept)** on host; see [incus-personal-cloud.md](./incus-personal-cloud.md). |
 | incus_cloud | `incus_cloud` | unused template | NixOS | stub | Incus template only | Module **off**; Slice A lives on AIServer (Sam override). |
 | sam_main | `sam-main` | `sam_nixos` | NixOS | _TBD_ | Primary workstation | Hyprland/Plasma, NVIDIA |
 | framework13 | `framework13` | `framework13` | NixOS | _TBD_ | Laptop |
