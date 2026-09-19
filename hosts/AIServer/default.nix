@@ -176,10 +176,11 @@ in {
     nvidiaSupport = true;
   };
 
-  # --- Incus Slice A (Sam override 2026-09-19): dedicated-host plan waived; daemon on AIServer ---
-  # Coexistence risk: my-k3s (Docker+nvidia), desktop/xrdp, Dispatch compose, nftables/bridges.
-  # Preseed does not delete. Agents do not nh os switch — Sam rebuilds.
-  # Do not enable on Spark. See docs/incus-personal-cloud.md.
+  # --- Incus Slice A (Sam override 2026-09-19): AI workloads via containers/VMs ---
+  # Intent: nicer AI deploys beside host k8s — not generic VMs. Dispatch stays compose+Caddy.
+  # Default coexistence (model A): keep my-k3s/Docker/nvidia on host; Incus adjacent.
+  # Risks: nftables/bridges vs k3s CNI. Preseed does not delete. Sam runs nh os switch (not agents).
+  # No Incus on Spark (vLLM primary). GPU in Incus = CDI/passthrough follow-up; see docs.
   services.my-incus-host.enable = true;
 
 
