@@ -1,5 +1,7 @@
 # Homelab inventory
 
+Related (plan only): [Incus personal cloud](./incus-personal-cloud.md) — Slice A recommends a **dedicated** Incus host, not AIServer.
+
 Human-facing fleet table. Fill PCI/SMBIOS and Tailscale fields from
 **nixos-facter** / `lshw -json` (or the host) when available — see
 [hardware-inventory.md](./hardware-inventory.md).
