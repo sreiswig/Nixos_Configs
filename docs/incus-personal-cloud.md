@@ -1,6 +1,6 @@
 # Incus personal cloud (plan)
 
-Status: **Slice A on AIServer (Sam override 2026-09-19) — AI workloads** — `services.my-incus-host.enable = true` on `hosts/AIServer`. Placeholder `hosts/incus_cloud` is an **unused template** (module off). Merged to main; **Sam** runs `nh os switch`. Agents do not switch.
+Status: **Slice A on AIServer (Sam override 2026-09-19) — AI workloads** — `services.my-incus-host.enable = true` on `hosts/AIServer`. Placeholder `hosts/incus_cloud` is an **unused template** (module off). Merged to main; **Sam** runs `nh os switch`. Agents do not switch. Multi-host v1 = **remotes over Tailscale**; **clustering later**.
 
 **Workload intent:** Incus for **AI** system containers/VMs (nicer deploys), not a generic VM farm. **Dispatch** stays compose+Caddy on the host. **Spark** stays primary vLLM (no Incus on Spark).
 
@@ -61,6 +61,21 @@ Incus on AIServer is for **AI workloads** — system containers / VMs with nicer
 ### OpenTofu
 
 Instance lifecycle = **Slice B** after A is live. Nix preseed only: bridge + default dir pool + default profile.
+
+
+
+## Multi-host: remotes now, clustering later (Sam lock 2026-09-19)
+
+**v1 (now):** multiple **standalone** Incus daemons, not a cluster.
+
+- **AIServer** — Slice A daemon (already enabled in flake; Sam runs `nh os switch`)
+- **Optional later host:** `asus_rog_1070` — docs only until Sam asks to enable; same module pattern
+- Manage with **`incus remote add`** over **Tailscale** (HTTPS to each daemon’s API on the tailnet). One workstation CLI (or OpenTofu provider with multiple remotes) talks to `aiserver:`, `rog1070:`, etc.
+- Each host keeps its own bridge/pool/preseed; no shared DB or live migration in v1
+
+**Clustering = later Slice** (not A/B). Revisit when you want a **single scheduling domain**, automatic placement, or **instance migration** across nodes. Until then remotes keep failure domains separate and match free-tier / single-host reality.
+
+**Do not** enable Incus on `asus_rog_1070` in this docs change. **Do not** put Incus on Spark.
 
 
 ## 1. Architecture note
