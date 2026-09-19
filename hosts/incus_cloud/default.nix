@@ -1,10 +1,6 @@
-# PLACEHOLDER dedicated Incus host (Slice A).
-# Sam must fill before first real deploy:
-#   - networking.hostName / Tailscale MagicDNS name
-#   - hardware-configuration.nix from nixos-generate-config (replace stub)
-#   - uplink NIC (NAT goes out the default route; pin with networking if needed)
-#   - dedicated disk path for services.my-incus-host.poolSource (optional; dir on root works for bring-up)
-# Do NOT copy this enablement onto AIServer or Spark.
+# UNUSED TEMPLATE — Sam override 2026-09-19: Incus Slice A runs on AIServer instead.
+# Keep this tree as a starting point if Incus later moves to a dedicated box.
+# Do NOT add this host to the live fleet without Sam; flake attr may remain for eval.
 { config, pkgs, lib, ... }:
 
 {
@@ -14,18 +10,11 @@
     ./hardware-configuration.nix
   ];
 
-  networking.hostName = "incus-cloud"; # TODO(Sam): final hostname / MagicDNS
+  networking.hostName = "incus-cloud";
 
-  services.my-incus-host = {
-    enable = true;
-    # bridgeName = "incusbr0";
-    # ipv4 = "10.0.100.1/24";
-    # poolSource = "/var/lib/incus/storage-pools/default";
-  };
+  # Intentionally off while AIServer carries Slice A.
+  services.my-incus-host.enable = false;
 
-  # Always-on cloud plane expectations (adjust when hardware is known).
   services.tailscale.enable = true;
-
-  # No desktop / k3s / Dispatch here — adjacent compute only.
   system.stateVersion = "24.11";
 }
