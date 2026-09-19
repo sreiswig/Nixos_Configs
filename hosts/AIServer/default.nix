@@ -17,6 +17,7 @@ in {
     ../../modules/services/kubernetes.nix
     ../../modules/services/ai-dispatch-caddy.nix
     ../../modules/services/network-self-heal.nix
+    ../../modules/services/incus-host.nix
     # ../../modules/services/authentik.nix
 
     # Local Configuration
@@ -174,6 +175,13 @@ in {
     disableTraefik = true; # Let Caddy handle routing
     nvidiaSupport = true;
   };
+
+  # --- Incus Slice A (Sam override 2026-09-19): dedicated-host plan waived; daemon on AIServer ---
+  # Coexistence risk: my-k3s (Docker+nvidia), desktop/xrdp, Dispatch compose, nftables/bridges.
+  # Preseed does not delete. Agents do not nh os switch — Sam rebuilds.
+  # Do not enable on Spark. See docs/incus-personal-cloud.md.
+  services.my-incus-host.enable = true;
+
 
   networking.hostName = "AI_Server";
   boot.initrd.kernelModules = [ "amdgpu" ];

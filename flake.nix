@@ -68,6 +68,12 @@
           hostname = "asus_rog_1070";
         };
 
+        # Dedicated Incus personal-cloud plane (Slice A). Stub hardware until Sam assigns a box.
+        # Not in CI build matrix yet — replace hardware-configuration.nix before first switch.
+        incus_cloud = mkHost {
+          hostname = "incus_cloud";
+        };
+
         dad_nas = mkHost {
           hostname = "dad_nas";
         };

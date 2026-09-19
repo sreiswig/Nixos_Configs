@@ -1,6 +1,20 @@
 # Incus personal cloud (plan)
 
-Status: **plan only** — do not enable Incus on any host until Sam approves Slice A and merges a follow-up enablement PR. Agents do not run `nh os switch`.
+Status: **Slice A on AIServer (Sam override 2026-09-19)** — `services.my-incus-host.enable = true` on `hosts/AIServer`. Placeholder `hosts/incus_cloud` kept as an **unused template** (module off). Agents do **not** `nh os switch`; Sam rebuilds. Do not merge until Sam asks.
+
+**Coexistence risks (accepted by Sam):**
+- AIServer still runs `services.my-k3s` (Docker + nvidia), desktop/xrdp, Dispatch compose + Caddy, Vault/Gitea/Attic/Ollama
+- Incus bridges (`incusbr0`) + required `networking.nftables` can interact badly with k3s CNI / Docker iptables-legacy assumptions — validate after first switch (`incus network list`, pod networking, Dispatch loopback)
+- Preseed creates/updates only; it does **not** delete leftover networks/pools
+- Do **not** enable on Spark
+
+**Sam still fills / verifies after rebuild:**
+1. Confirm `incus admin waitready` / `incus profile show default` after switch
+2. Optional dedicated disk for `services.my-incus-host.poolSource` (default dir under `/var/lib/incus`)
+3. Watch nftables + k3s + Docker after enable
+
+**Module:** `modules/services/incus-host.nix` → `services.my-incus-host`
+
 
 Locks (Chief of Staff / Sam, 2026-09-19):
 
@@ -29,7 +43,7 @@ NixOS reference: [wiki.nixos.org/wiki/Incus](https://wiki.nixos.org/wiki/Incus)
 | **sam_main / framework13** | Unsuitable | Workstation / laptop; not always-on cloud plane |
 | **dad_nas** | Unsuitable | Media NAS role |
 
-**Recommendation:** Slice A targets a **dedicated NixOS host**. Until hardware exists, keep the daemon **off**. Optional interim: Sam explicitly assigns `asus_rog_1070` as the Incus plane (today: secondary GPU desktop / Ollama CUDA) — document that trade-off before enabling.
+**Recommendation (original):** dedicated NixOS host. **Sam override (2026-09-19):** Slice A enabled on **AIServer** anyway — see status banner. Until hardware exists, keep the daemon **off**. Optional interim: Sam explicitly assigns `asus_rog_1070` as the Incus plane (today: secondary GPU desktop / Ollama CUDA) — document that trade-off before enabling.
 
 AIServer remains the **services hub** (Dispatch compose on loopback, Caddy on Tailscale). Incus does not migrate Dispatch into containers in Slice A–B.
 
@@ -90,7 +104,7 @@ Tailscale is the human/VPC path to the **host**, not hairpin into every instance
 
 ### Host wiring
 
-- New `hosts/<dedicated>/default.nix` (or Sam-approved `asus_rog_1070`) imports the module with `enable = true`
+- Placeholder `hosts/incus_cloud/default.nix` imports the module with `enable = true` (stub hardware until Sam assigns a box)
 - **Do not** import/enable on `hosts/AIServer` in Slice A
 
 ### Plan B (AIServer) — only if Sam insists

@@ -10,7 +10,8 @@ External machines (Spark, Windows) live here only until they have a flake host.
 
 | Host | Flake attr | Hostname / MagicDNS | Platform | SMBIOS product / key PCI | Role | Notes |
 |------|------------|---------------------|----------|--------------------------|------|-------|
-| AIServer | `AIServer` | `AI_Server` / `aiserver.tail93ec7d.ts.net` | NixOS | _TBD (facter)_ | App/services hub | Caddy, Vault, Gitea, Attic, monitoring, K3s, [network self-heal](./network-self-heal.md), always-on (no sleep in flake), … |
+| AIServer | `AIServer` | `AI_Server` / `aiserver.tail93ec7d.ts.net` | NixOS | _TBD (facter)_ | App/services hub | Caddy, Vault, Gitea, Attic, monitoring, K3s, [network self-heal](./network-self-heal.md), always-on (no sleep in flake), …  **Incus Slice A (Sam override)** on host; see [incus-personal-cloud.md](./incus-personal-cloud.md). |
+| incus_cloud | `incus_cloud` | unused template | NixOS | stub | Incus template only | Module **off**; Slice A lives on AIServer (Sam override). |
 | sam_main | `sam-main` | `sam_nixos` | NixOS | _TBD_ | Primary workstation | Hyprland/Plasma, NVIDIA |
 | framework13 | `framework13` | `framework13` | NixOS | _TBD_ | Laptop |
 | dad_nas | `dad_nas` | `queennas` / `queennas.tail93ec7d.ts.net` | NixOS | _TBD_ | Media NAS | Jellyfin, Immich; TS IP `100.74.70.2` in Caddy |
@@ -40,7 +41,7 @@ Apartment WiFi → **Gl.iNet Beryl** (client / WISP mode) → **Netgear GS108**
 |--------|----------------|-------|
 | sam_main | yes | Primary workstation |
 | Raspberry Pi | yes | Not a flake host; no further identity recorded here |
-| AIServer | yes | Services hub |
+| AIServer | yes | Services hub  **Incus Slice A (Sam override)** on host; see [incus-personal-cloud.md](./incus-personal-cloud.md). |
 | Windows | no | Still off the switch |
 | Spark | no | Still off the switch. MagicDNS `spark-48e5.tail93ec7d.ts.net`; vLLM `served-model-name` is Sam-only — leave TBD |
 
