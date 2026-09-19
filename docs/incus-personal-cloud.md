@@ -1,6 +1,8 @@
 # Incus personal cloud (plan)
 
-Status: **Slice A on AIServer (Sam override 2026-09-19)** — `services.my-incus-host.enable = true` on `hosts/AIServer`. Placeholder `hosts/incus_cloud` kept as an **unused template** (module off). Agents do **not** `nh os switch`; Sam rebuilds. Do not merge until Sam asks.
+Status: **Slice A on AIServer (Sam override 2026-09-19) — AI workloads** — `services.my-incus-host.enable = true` on `hosts/AIServer`. Placeholder `hosts/incus_cloud` is an **unused template** (module off). Merged to main; **Sam** runs `nh os switch`. Agents do not switch.
+
+**Workload intent:** Incus for **AI** system containers/VMs (nicer deploys), not a generic VM farm. **Dispatch** stays compose+Caddy on the host. **Spark** stays primary vLLM (no Incus on Spark).
 
 **Coexistence risks (accepted by Sam):**
 - AIServer still runs `services.my-k3s` (Docker + nvidia), desktop/xrdp, Dispatch compose + Caddy, Vault/Gitea/Attic/Ollama
@@ -31,6 +33,36 @@ NixOS reference: [wiki.nixos.org/wiki/Incus](https://wiki.nixos.org/wiki/Incus)
 
 ---
 
+
+## Workload intent & k8s coexistence (Sam, 2026-09-19)
+
+Incus on AIServer is for **AI workloads** — system containers / VMs with nicer deploy/lifecycle — not a generic desktop-VM farm.
+
+**Dispatch** stays **compose + Caddy on the AIServer host** (do not migrate to k8s/Incus in Slice A).
+
+**Spark** remains primary **vLLM**. No Incus on Spark; do not move that role onto AIServer Incus.
+
+### Coexistence with host `my-k3s` / Docker / nvidia
+
+| Model | What | When |
+|-------|------|------|
+| **A (default)** | Keep **host k3s** for current K8s apps (Docker+nvidia as today). **Incus** runs AI containers/VMs beside it. OpenTofu later for instance lifecycle. | Now |
+| **B (optional later)** | Shrink/remove host k3s; run Kubernetes only inside Incus VMs. | Only after A is stable and Sam asks |
+
+**Default: A.** Do not disable `services.my-k3s` in Slice A.
+
+### GPU / nvidia (AI instances)
+
+- Leave the host nvidia + Docker/k3s GPU path alone for existing workloads.
+- Incus containers needing GPU: nvidia CDI / GPU devices per current Incus docs — validate with a throwaway CUDA container **after** Sam’s rebuild.
+- Incus VMs needing GPU: PCI passthrough (IOMMU) — follow-up, not Slice A preseed.
+- Do not take GPUs from Spark’s vLLM role.
+
+### OpenTofu
+
+Instance lifecycle = **Slice B** after A is live. Nix preseed only: bridge + default dir pool + default profile.
+
+
 ## 1. Architecture note
 
 ### Where the daemon lives (Slice A recommendation)
@@ -43,7 +75,7 @@ NixOS reference: [wiki.nixos.org/wiki/Incus](https://wiki.nixos.org/wiki/Incus)
 | **sam_main / framework13** | Unsuitable | Workstation / laptop; not always-on cloud plane |
 | **dad_nas** | Unsuitable | Media NAS role |
 
-**Recommendation (original):** dedicated NixOS host. **Sam override (2026-09-19):** Slice A enabled on **AIServer** anyway — see status banner. Until hardware exists, keep the daemon **off**. Optional interim: Sam explicitly assigns `asus_rog_1070` as the Incus plane (today: secondary GPU desktop / Ollama CUDA) — document that trade-off before enabling.
+**Recommendation (original):** dedicated NixOS host. **Sam override (2026-09-19):** Slice A enabled on **AIServer** anyway — see status banner. Daemon is enabled on AIServer in flake; Sam applies with `nh os switch`. `asus_rog_1070` remains an optional future move-off-host if coexistence hurts.
 
 AIServer remains the **services hub** (Dispatch compose on loopback, Caddy on Tailscale). Incus does not migrate Dispatch into containers in Slice A–B.
 
