@@ -40,10 +40,10 @@
 
 stdenv.mkDerivation (finalAttrs: {
   pname = "grok-bot";
-  version = "0.24.0";
+  version = "0.58.0";
 
   # Local vendor .deb checked into the flake root
-  src = ../../Grok_Bot_0.24.0.deb;
+  src = ../../grok-bot_0.58.0_amd64.deb;
 
   nativeBuildInputs = [
     dpkg
@@ -106,25 +106,24 @@ stdenv.mkDerivation (finalAttrs: {
     runHook preInstall
 
     mkdir -p "$out/opt/grok-bot" "$out/bin" "$out/share/applications" \
-      "$out/share/icons/hicolor/1024x1024/apps"
+      "$out/share/icons"
 
     # Normalize the space-containing vendor path
     cp -a "opt/Grok Bot/." "$out/opt/grok-bot/"
 
-    # Desktop entry → stable command name (binary renamed sand → grok-bot in 0.24.0)
-    substitute "usr/share/applications/grok-bot.desktop" \
-      "$out/share/applications/grok-bot.desktop" \
-      --replace-fail 'Exec="/opt/Grok Bot/grok-bot" %U' "Exec=grok-bot %U"
+    # 0.58.0 desktop entry already uses Exec=grok-bot %U
+    cp usr/share/applications/grok-bot.desktop \
+      "$out/share/applications/grok-bot.desktop"
 
-    cp "usr/share/icons/hicolor/1024x1024/apps/grok-bot.png" \
-      "$out/share/icons/hicolor/1024x1024/apps/grok-bot.png"
+    # Icons ship as multiple hicolor sizes (no 1024x1024 in 0.58.0)
+    cp -a usr/share/icons/hicolor "$out/share/icons/"
 
     # chrome-sandbox cannot be setuid in the Nix store; use --no-sandbox
     makeWrapper "$out/opt/grok-bot/grok-bot" "$out/bin/grok-bot" \
       --prefix LD_LIBRARY_PATH : "$out/opt/grok-bot" \
       --prefix PATH : "${lib.makeBinPath [ xdg-utils ]}" \
       --add-flags "--no-sandbox" \
-      --add-flags "\''${NIXOS_OZONE_WL:+\''${WAYLAND_DISPLAY:+--ozone-platform-hint=auto --enable-features=WaylandWindowDecorations --enable-wayland-ime=true}}"
+      --add-flags "\'''${NIXOS_OZONE_WL:+\'''${WAYLAND_DISPLAY:+--ozone-platform-hint=auto --enable-features=WaylandWindowDecorations --enable-wayland-ime=true}}"
 
     runHook postInstall
   '';
