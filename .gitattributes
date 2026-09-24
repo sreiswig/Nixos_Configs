@@ -1,1 +1,2 @@
 Grok_Bot_*.deb filter=lfs diff=lfs merge=lfs -text
+grok-bot_*.deb filter=lfs diff=lfs merge=lfs -text
