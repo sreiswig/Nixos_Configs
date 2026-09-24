@@ -123,7 +123,7 @@ stdenv.mkDerivation (finalAttrs: {
       --prefix LD_LIBRARY_PATH : "$out/opt/grok-bot" \
       --prefix PATH : "${lib.makeBinPath [ xdg-utils ]}" \
       --add-flags "--no-sandbox" \
-      --add-flags "\'''${NIXOS_OZONE_WL:+\'''${WAYLAND_DISPLAY:+--ozone-platform-hint=auto --enable-features=WaylandWindowDecorations --enable-wayland-ime=true}}"
+      --add-flags "\''${NIXOS_OZONE_WL:+\''${WAYLAND_DISPLAY:+--ozone-platform-hint=auto --enable-features=WaylandWindowDecorations --enable-wayland-ime=true}}"
 
     runHook postInstall
   '';
