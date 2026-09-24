@@ -15,6 +15,14 @@ env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 jobs:
+  host-flake-unit:
+    runs-on: ubuntu-latest
+    steps:
+      # Same pinned checkout as the Nix jobs below.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: In-memory hostname → flake resolver tests
+        run: sh tests/host_flake_test.sh
+
   check-flake:
     runs-on: ubuntu-latest
     steps:
