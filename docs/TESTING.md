@@ -99,6 +99,7 @@ We have configured a GitHub Actions workflow (`.github/workflows/ci.yml`) that a
 It performs the following checks:
 1.  **Flake Check:** Verifies syntax and dependency resolution (with a committed `flake.lock`).
 2.  **Dry Build:** Compiles the system configuration for a **three-host matrix**: `sam-main`, `framework13`, and `AIServer` (`fail-fast: false` so one host failure does not cancel the others).
+3.  **Host mapping unit tests:** In-memory checks of `lib/host_flake.sh` (hostname string → flake attribute, or a typed deny). No Nix evaluation and no host activation. Locally: `make test-host-flake`.
 
 `asus_rog_1070` and `dad_nas` remain in the flake but are **intentionally excluded** from the CI matrix for now.
 
