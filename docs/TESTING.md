@@ -87,7 +87,6 @@ echo $VAULT_ADDR    # Should be 'https://aiserver.tail93ec7d.ts.net/vault'
   systemctl status caddy
   systemctl status vault
   systemctl status gitea
-  systemctl status n8n
   systemctl status neo4j
   ```
 
