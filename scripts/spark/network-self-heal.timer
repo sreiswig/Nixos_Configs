@@ -1,0 +1,12 @@
+[Unit]
+Description=Periodic Ethernet/WiFi/Tailscale network self-heal watchdog
+
+[Timer]
+OnBootSec=30s
+OnUnitActiveSec=2min
+AccuracySec=15s
+Persistent=true
+Unit=network-self-heal.service
+
+[Install]
+WantedBy=timers.target
