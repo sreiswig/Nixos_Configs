@@ -37,15 +37,16 @@ in {
   };
 
   # Every 2min: reconnect WiFi if unassociated, `tailscale up` if offline.
+  # Link loss restarts NetworkManager and, if it is actually in use, systemd-networkd,
+  # plus tailscaled. Tailscale-offline for ~16 minutes (9 checks) reboots.
+  # WAN/gateway ICMP stays a warning while Tailscale is online.
   # wifiInterface from nixos-generate-config; script auto-detects if the name is gone.
   # Ethernet (enp37s0f1np1) is still preferred; OOB KVM for total radio/NIC death.
-  # pingMode defaults to "soft": ICMP fail is WARN-only while Tailscale is online.
   services.my-network-self-heal = {
     enable = true;
     inherit wifiInterface;
     requireTailscale = true;
     escalateToReboot = true;
-    # defaults: ping 1.1.1.1 soft; escalate NM@2 → tailscaled@4 → reboot@8 (1h cooldown)
   };
 
   # Always-on: WiFi + Tailscale at boot, no sleep, SSH on the tailnet.
@@ -188,6 +189,8 @@ in {
   boot.initrd.kernelModules = [ "amdgpu" ];
 
   # XRDP for Remmina (Plasma X11 session; separate from any local SDDM login).
+  # my-network-self-heal also allows TCP 3389 on tailscale0 so this stays reachable
+  # on the tailnet. sshd is not socket-activated (startWhenNeeded = false below).
   services.xrdp = {
     enable = true;
     openFirewall = true;
