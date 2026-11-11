@@ -20,7 +20,7 @@ set -euo pipefail
 
 STATE_DIR="${STATE_DIR:-/var/lib/network-self-heal}"
 PING_TARGET="${PING_TARGET:-1.1.1.1}"
-PING_MODE="${PING_MODE:-hard}"
+PING_MODE="${PING_MODE:-soft}"
 REQUIRE_TS="${REQUIRE_TS:-1}"
 WIFI_IFACE="${WIFI_IFACE:-}"
 DISABLE_PS="${DISABLE_PS:-1}"
