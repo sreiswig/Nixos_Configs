@@ -1,21 +1,31 @@
 # Makefile for NixOS Configuration Testing
 
-.PHONY: help switch upgrade current-host \
+.PHONY: help switch upgrade current-host test-host-flake \
 	vm-sam-main vm-framework13 vm-aiserver vm-dad_nas vm-asus_rog_1070 \
 	build-sam-main build-framework13 build-aiserver build-dad_nas build-asus_rog_1070 \
 	clean
 
 # Map networking.hostName / hostname(1) to flake attribute names in flake.nix
-# (they don't always match — e.g. sam_nixos → sam-main)
+# (they don't always match — e.g. sam_nixos → sam-main).
+# The alias table is lib/host_flake.sh (pure). This file only reads the
+# machine hostname, unless HOSTNAME_INPUT is set on the make command line
+# (used by tests; it does not read /etc/hostname in that case).
+REPO_ROOT := $(patsubst %/,%,$(dir $(abspath $(lastword $(MAKEFILE_LIST)))))
+
+ifeq ($(origin HOSTNAME_INPUT), command line)
+CURRENT_HOSTNAME := $(HOSTNAME_INPUT)
+else
 CURRENT_HOSTNAME := $(shell cat /etc/hostname 2>/dev/null || hostname)
-HOST_FLAKE := $(shell \
-	h="$(CURRENT_HOSTNAME)"; \
-	if [ "$$h" = "sam_nixos" ] || [ "$$h" = "samnixos" ] || [ "$$h" = "sam-main" ] || [ "$$h" = "sam_main" ]; then echo sam-main; \
-	elif [ "$$h" = "framework13" ]; then echo framework13; \
-	elif [ "$$h" = "AI_Server" ] || [ "$$h" = "AIServer" ] || [ "$$h" = "ai_server" ]; then echo AIServer; \
-	elif [ "$$h" = "queennas" ] || [ "$$h" = "dad_nas" ]; then echo dad_nas; \
-	elif [ "$$h" = "asus-rog-1070" ] || [ "$$h" = "asus_rog_1070" ]; then echo asus_rog_1070; \
-	fi)
+endif
+
+# $(shell) does not see makefile `export`s during parse, so pass the
+# hostname as one single-quoted argument. Apostrophes are escaped.
+sh_quote = '$(subst ','\'',$(1))'
+HOST_FLAKE_RESULT := $(shell . '$(REPO_ROOT)/lib/host_flake.sh'; host_flake_resolve $(call sh_quote,$(CURRENT_HOSTNAME)))
+
+HOST_FLAKE_STATUS := $(word 1,$(HOST_FLAKE_RESULT))
+HOST_FLAKE_VALUE := $(word 2,$(HOST_FLAKE_RESULT))
+HOST_FLAKE := $(if $(filter ok,$(HOST_FLAKE_STATUS)),$(HOST_FLAKE_VALUE),)
 
 # Default target
 help:
@@ -23,6 +33,7 @@ help:
 	@echo "  switch           - Apply this flake to the current host (nixos-rebuild switch)"
 	@echo "  upgrade          - Update flake inputs, then switch the current host"
 	@echo "  current-host     - Show detected hostname → flake attribute mapping"
+	@echo "  test-host-flake  - Run in-memory hostname → flake resolver tests"
 	@echo "  vm-sam-main      - Build and run a VM for sam-main"
 	@echo "  vm-framework13   - Build and run a VM for framework13"
 	@echo "  vm-aiserver      - Build and run a VM for AIServer"
@@ -37,8 +48,9 @@ help:
 
 # Resolve flake attr for this machine (fails clearly if unknown)
 define require-host-flake
-	@if [ -z "$(HOST_FLAKE)" ]; then \
-		echo "error: unknown host '$(CURRENT_HOSTNAME)' — add a mapping in the Makefile"; \
+	@if [ "$(HOST_FLAKE_STATUS)" != "ok" ] || [ -z "$(HOST_FLAKE)" ]; then \
+		echo "error: unknown host '$(CURRENT_HOSTNAME)' — resolver: $(if $(HOST_FLAKE_RESULT),$(HOST_FLAKE_RESULT),no result)"; \
+		echo "  add an alias in lib/host_flake.sh"; \
 		echo "  known flake attrs: sam-main framework13 AIServer dad_nas asus_rog_1070"; \
 		exit 1; \
 	fi
@@ -47,6 +59,9 @@ endef
 
 current-host:
 	$(require-host-flake)
+
+test-host-flake:
+	sh '$(REPO_ROOT)/tests/host_flake_test.sh'
 
 # Apply current locked inputs to this machine
 switch:
