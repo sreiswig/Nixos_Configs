@@ -26,9 +26,9 @@ No SSIDs, passwords, or Tailscale auth keys belong in this repo.
 
 Checks run every **2 minutes**.
 
-- **Tailscale online:** a failed ping to `1.1.1.1` or to the LAN gateway is a warning only. The box is reachable, so it is not rebooted. This keeps the existing soft-WAN behavior.
-- **Tailscale offline:** that is a hard outage. Link loss restarts the network stack (NetworkManager and, if it is actually in use, systemd-networkd) and Tailscale, or on Windows resets the physical adapters and the Tailscale service.
+- **Tailscale online:** the box is reachable, so it is not rebooted. Spark and AIServer default to `pingMode` **soft**: a failed ping to `1.1.1.1` or to the LAN gateway is a warning only. Windows probes the LAN gateway only; a failed gateway ping is a warning only.
+- **Tailscale offline:** that is a hard outage. On Spark and AIServer, link loss restarts the network stack (NetworkManager and, if it is actually in use, systemd-networkd) and Tailscale. On Windows, each offline check resets the physical adapters and the Tailscale service.
 - **About 16 minutes** of Tailscale being offline (9 checks) triggers a reboot, then a **1 hour** cooldown so it cannot reboot-loop. That sits in the 15–20 minute window.
-- **`NeedsLogin` / not yet approved** does not reboot. Someone still has to run `tailscale up` once on the console.
+- **`NeedsLogin` / `NeedsMachineAuth`** does not reboot. Someone still has to run `tailscale up` once on the console.
 
-`/dev/watchdog` is used only when it already exists (`RuntimeWatchdogSec=60s` on AIServer and on Spark). No watchdog kernel module is loaded; a guessed module can reset the machine in a loop.
+On AIServer, `RuntimeWatchdogSec=60s` is set with the module, and systemd ignores it when no hardware watchdog exists. On Spark, that setting is written only if `/dev/watchdog` or `/dev/watchdog0` already exists. No watchdog kernel module is loaded; a guessed module can reset the machine in a loop. The Windows script leaves the hardware watchdog unset.
