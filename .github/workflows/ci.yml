@@ -39,3 +39,27 @@ jobs:
       - uses: DeterminateSystems/nix-installer-action@3138316df39ed29be04236d7ffc686fa525866aa # v23
       - name: Dry-run Build
         run: nix build .#nixosConfigurations.${{ matrix.host }}.config.system.build.toplevel --dry-run
+
+  scripts:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      # v5 (resolved 2026-08-11 via git ls-remote refs/tags/v5 == v5.1.0)
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Spark network self-heal tests
+        run: bash scripts/spark/test-network-self-heal.sh
+      - name: shellcheck Spark scripts
+        run: shellcheck scripts/spark/*.sh
+      - name: Parse Windows remote-hardening script
+        shell: pwsh
+        run: |
+          $path = Join-Path (Get-Location) 'scripts/windows/remote-hardening.ps1'
+          $tokens = $null
+          $parseErrors = $null
+          [void][System.Management.Automation.Language.Parser]::ParseFile($path, [ref]$tokens, [ref]$parseErrors)
+          if ($null -ne $parseErrors -and $parseErrors.Count -gt 0) {
+            foreach ($parseError in $parseErrors) {
+              Write-Output $parseError.ToString()
+            }
+            exit 1
+          }

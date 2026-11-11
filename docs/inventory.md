@@ -52,5 +52,6 @@ WiFi directly. The Beryl is the apartment-WiFi client; hosts that matter should
 sit on the switch behind it.
 
 Related: [network self-heal](./network-self-heal.md) (soft WAN ping when Tailscale
-is up; ethernet + OOB KVM for radio / NIC death). Shopping / upgrade shortlist:
+is up; ethernet + OOB KVM for radio / NIC death),
+[remote access checklist](./remote-access/README.md). Shopping / upgrade shortlist:
 [home-network-upgrade.md](./home-network-upgrade.md).

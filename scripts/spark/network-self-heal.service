@@ -1,0 +1,13 @@
+[Unit]
+Description=Ethernet/WiFi/Tailscale network self-heal check
+After=network-pre.target NetworkManager.service systemd-networkd.service tailscaled.service
+Wants=tailscaled.service
+
+[Service]
+Type=oneshot
+EnvironmentFile=-/etc/default/network-self-heal
+ExecStart=/usr/local/sbin/network-self-heal-check
+TimeoutStartSec=120s
+
+[Install]
+WantedBy=multi-user.target
