@@ -57,7 +57,9 @@ It opens personal_groktor's SQLite database read-only (`SQLITE_OPEN_READ_ONLY` a
 | `raw_name` | `raw_name` | nullable |
 | `notes` | `notes` | nullable |
 
-The loader rejects a missing file, a missing `metrics` table, a missing column, a non-finite value, a bad date, or a path-shaped token. On validation failure it publishes nothing for that run. Writes go to `.<run_id>.parquet.partial`, then `fsync`, then `rename` in the same directory.
+The loader rejects a missing file, a missing `metrics` table, a missing column, a non-finite value, a bad date, or a path-shaped token. It also rejects a symlink or any non-regular inbox entry, including `data.db-wal`. On validation failure it publishes nothing for that run. Writes go to `.<run_id>.parquet.partial`, then `fsync`, then `rename` in the same directory.
+
+Before SQLite opens the database, the loader checks the inbox path with `lstat`, opens it with `O_NOFOLLOW`, and checks the inode. It then copies those bytes into a mode `0600` file in a mode `0700` directory (`RUNTIME_DIRECTORY` when the unit sets one, otherwise a private temp directory) and opens that copy read-only. The copy is removed when the load finishes or fails. A regular `data.db-wal` beside the inbox file gets the same check and is copied next to the snapshot, under the same name, so uncheckpointed rows are included. A missing `-wal` is normal. An inbox `-shm` is not opened. The private copy creates its own `-shm`, and a symlink or other non-regular inbox `-shm` is logged and ignored.
 
 Default SQLite path: `/var/lib/warehouse/inbox/health/data.db`.
 
@@ -99,6 +101,7 @@ sudo systemctl start warehouse-load-health.service
 | Model | Materialization | Grain |
 |-------|-----------------|--------|
 | `stg_health__metrics` | view in schema `health` | one row per `metrics.id`, latest `_loaded_at` |
+| `int_health__metrics_accepted` | view in schema `health` | staging rows inside the seed percent range |
 | `fct_health_daily` | table in schema `health` | one row per `source_day` and `kind` |
 | `dim_metric_kind` | table in schema `health` | one row per `kind` |
 
@@ -109,7 +112,7 @@ sudo systemctl start warehouse-load-health.service
 
 A test fails the build when a staged kind has no seed row, and when a kind from the `accepted_values` list has no seed row. Staging renames unit aliases and converts the value into the kind's canonical unit when the factor is known: time (`s`, `min`, `hours`, alias `h`), length (`m`, `km`, `mile`, alias `mi`), energy (`kJ` to `kcal`, aliases `kcals` and capital `Cal`), and mass (`g`, `kg`, alias `kgs`, `lb`). `beats per minute`, `beats/minute`, and `beats/min` become `bpm`. `msec` becomes `ms`. `percent`, `pct`, and `percentage` become `%`. Lowercase `cal` is not an alias. Anything else stays as written, and an error-severity test fails the build when a row's unit still differs from the seed, so it is not summed into `fct_health_daily` unnoticed. `dim_metric_kind` keeps only rows whose unit is that canonical unit, and `assert_dim_metric_kind_unit` fails the build if a mismatched unit is stored on the dimension. A second test fails when one `source_day` and kind still has more than one unit. `accepted_values` on `kind` and `unit` is severity `warn` until an Amazfit or Zepp parser lands. There is no `unknown` unit.
 
-Percent kinds (`canonical_unit` `%`, including `body_fat_pct`, `sleep_efficiency_pct`, and `spo2_pct`) must be on a 0 to 100 scale. A value labeled `%` (after alias rename) has to be greater than 1 and at most 100. A fraction such as `0.2` labeled `%` fails `assert_stg_health_percent_scale`. The build does not multiply that fraction by 100.
+Percent kinds (`canonical_unit` `%`) use a per-kind range on the seed `health_kind_agg` (`percent_min`, `percent_max`, `percent_allow_zero`, `percent_min_exclusive`). The build does not multiply a fraction by 100. `body_fat_pct` and `sleep_efficiency_pct` accept `0` (no reading) and every value from `1` through `100`. A value strictly between `0` and `1`, such as `0.2` or `0.93`, is out of range for those kinds. `spo2_pct` accepts only values greater than `1` and at most `100`, so `0`, `1`, and `0.2` all fail. `assert_stg_health_percent_scale` is the alarm: it fails `dbt build` when staging still has an out-of-range percent. Those rows stay in `stg_health__metrics` and are left out of `int_health__metrics_accepted`, which is what `fct_health_daily` and `dim_metric_kind` read. A plain `dbt run` without tests therefore does not publish them.
 
 Other tests: `unique` and `not_null` on keys, `accepted_values` on `category`, `relationships` from the fact to the dimension, and a singular test that `local_date` equals the hive `dt`. Source `health.metrics` has freshness on `_loaded_at` (warn after 36 hours, error after 72). `warehouse-dbt.service` runs `dbt build` and then `dbt source freshness` when at least one Parquet file exists. `ExecCondition` exits 1 otherwise. Exit codes 1 through 254 skip the unit and leave it inactive. Exit 255 would mark it failed, so the guard does not use 255. An empty loader run (zero files) still has `OnSuccess`, and that condition skips dbt.
 

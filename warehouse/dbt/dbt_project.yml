@@ -24,6 +24,10 @@ models:
       +materialized: view
       health:
         +schema: health
+    intermediate:
+      +materialized: view
+      health:
+        +schema: health
     marts:
       +materialized: table
       health:
@@ -37,3 +41,7 @@ seeds:
         kind: varchar
         agg_rule: varchar
         canonical_unit: varchar
+        percent_min: double
+        percent_max: double
+        percent_allow_zero: integer
+        percent_min_exclusive: integer

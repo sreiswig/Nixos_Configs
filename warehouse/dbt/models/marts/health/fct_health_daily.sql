@@ -13,7 +13,7 @@ sampled as (
     select
         metrics.*,
         rules.agg_rule
-    from {{ ref('stg_health__metrics') }} as metrics
+    from {{ ref('int_health__metrics_accepted') }} as metrics
     inner join rules
         on metrics.kind = rules.kind
         and metrics.unit = rules.canonical_unit

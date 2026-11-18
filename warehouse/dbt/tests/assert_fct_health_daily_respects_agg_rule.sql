@@ -1,12 +1,15 @@
 -- Expected value is computed here, not with arg_max.
 -- Latest kinds: the row with the greatest (recorded_at, _loaded_at, metric_id),
 -- chosen with ORDER BY ... LIMIT 1.
--- Sum kinds: sum of staging values, which are already in the canonical unit.
+-- Sum kinds: sum of accepted values, which are already in the canonical unit.
+-- Out-of-range percents are not in int_health__metrics_accepted, so they
+-- are not part of this expected value. The percent test still sees them
+-- on staging.
 -- unit and _loaded_at must come from that same winning row.
--- A kind present in staging and missing from the fact is a failure.
+-- An accepted kind missing from the fact is a failure.
 
 with metrics as (
-    select * from {{ ref('stg_health__metrics') }}
+    select * from {{ ref('int_health__metrics_accepted') }}
 ),
 
 groups as (

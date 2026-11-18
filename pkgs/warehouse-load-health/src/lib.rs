@@ -6,8 +6,8 @@
 
 use std::collections::BTreeMap;
 use std::fs::{self, File, OpenOptions};
-use std::os::unix::fs::{MetadataExt, OpenOptionsExt};
-use std::os::unix::io::AsRawFd;
+use std::io::{self, Write};
+use std::os::unix::fs::{DirBuilderExt, MetadataExt, OpenOptionsExt};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
@@ -307,8 +307,9 @@ fn lexical_absolute(path: &Path) -> PathBuf {
 ///
 /// `lstat` rejects a symlink or anything that is not a regular file.
 /// `O_NOFOLLOW` repeats that on the open, and `fstat` checks the fd is
-/// still the same inode. The `File` is returned so the caller can read
-/// that fd (via `/proc/self/fd`) instead of opening the path again.
+/// still the same inode. Callers copy bytes from this fd. They do not
+/// hand the path, or `/proc/self/fd/N`, to SQLite: bundled SQLite resolves
+/// that link and opens the name again.
 fn open_inbox_file(path: &Path) -> LoadResult<File> {
     let listed = match fs::symlink_metadata(path) {
         Ok(meta) => meta,
@@ -367,15 +368,132 @@ fn require_sqlite(path: &Path) -> LoadResult<PathBuf> {
     Ok(lexical_absolute(path))
 }
 
-fn read_metrics(path: &Path) -> LoadResult<Vec<MetricRow>> {
-    let file = open_inbox_file(path)?;
-    let fd_path = format!("/proc/self/fd/{}", file.as_raw_fd());
-    let conn = Connection::open_with_flags(&fd_path, OpenFlags::SQLITE_OPEN_READ_ONLY).map_err(|e| {
-        LoadError::new(format!("open {} read-only: {e}", path.display()))
-    })?;
-    // `file` stays alive for the whole read so the fd path remains valid.
-    let rows = read_metrics_conn(&conn)?;
+/// Private copy of a verified inbox database. Dropped on every exit path,
+/// including errors, so the temp files do not linger.
+struct SqliteSnapshot {
+    dir: PathBuf,
+    db_path: PathBuf,
+}
+
+impl Drop for SqliteSnapshot {
+    fn drop(&mut self) {
+        let _ = fs::remove_dir_all(&self.dir);
+    }
+}
+
+fn snapshot_base() -> PathBuf {
+    if let Some(raw) = std::env::var_os("RUNTIME_DIRECTORY") {
+        let text = raw.to_string_lossy();
+        if let Some(first) = text.split(':').next() {
+            if !first.is_empty() {
+                return PathBuf::from(first);
+            }
+        }
+    }
+    std::env::temp_dir()
+}
+
+fn sidecar_path(path: &Path, suffix: &str) -> PathBuf {
+    let mut name = path.as_os_str().to_os_string();
+    name.push(suffix);
+    PathBuf::from(name)
+}
+
+fn copy_fd_to(mut src: &File, dest: &Path) -> LoadResult<()> {
+    let mut out = OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .mode(0o600)
+        .open(dest)
+        .map_err(|e| LoadError::new(format!("create {}: {e}", dest.display())))?;
+    io::copy(&mut src, &mut out)
+        .map_err(|e| LoadError::new(format!("copy into {}: {e}", dest.display())))?;
+    out.flush()
+        .map_err(|e| LoadError::new(format!("flush {}: {e}", dest.display())))?;
+    out.sync_all()
+        .map_err(|e| LoadError::new(format!("fsync {}: {e}", dest.display())))?;
+    Ok(())
+}
+
+/// Copy the verified database (and a verified `-wal`, when one exists) into
+/// a mode `0700` directory. SQLite then opens only that copy.
+///
+/// An inbox `data.db-wal` that is missing is ignored. A symlink or any
+/// non-regular `-wal` fails the load. An inbox `-shm` is never opened:
+/// SQLite creates a fresh one beside the private copy. A symlink or
+/// non-regular `-shm` is logged and ignored.
+fn snapshot_sqlite(db: &Path) -> LoadResult<SqliteSnapshot> {
+    let file = open_inbox_file(db)?;
+    let id = new_run_id()?;
+    let dir = snapshot_base().join(format!("warehouse-sqlite-{id}"));
+    let mut builder = fs::DirBuilder::new();
+    builder.mode(0o700);
+    builder
+        .create(&dir)
+        .map_err(|e| LoadError::new(format!("create {}: {e}", dir.display())))?;
+    let snapshot = SqliteSnapshot {
+        db_path: dir.join("data.db"),
+        dir,
+    };
+    copy_fd_to(&file, &snapshot.db_path)?;
     drop(file);
+
+    let wal = sidecar_path(db, "-wal");
+    match fs::symlink_metadata(&wal) {
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+        Err(e) => {
+            return Err(LoadError::new(format!("stat {}: {e}", wal.display())));
+        }
+        Ok(meta) => {
+            if meta.file_type().is_symlink() {
+                return Err(LoadError::new(format!(
+                    "refusing to follow symlink {} (wal sidecar must be a regular file)",
+                    wal.display()
+                )));
+            }
+            if !meta.file_type().is_file() {
+                return Err(LoadError::new(format!(
+                    "refusing non-regular file {} (wal sidecar must be a regular file)",
+                    wal.display()
+                )));
+            }
+            let wal_file = open_inbox_file(&wal)?;
+            copy_fd_to(&wal_file, &sidecar_path(&snapshot.db_path, "-wal"))?;
+        }
+    }
+
+    let shm = sidecar_path(db, "-shm");
+    if let Ok(meta) = fs::symlink_metadata(&shm) {
+        if meta.file_type().is_symlink() || !meta.file_type().is_file() {
+            eprintln!(
+                "warehouse-load-health: ignoring inbox sidecar {} (not a regular file). The private copy creates its own -shm.",
+                shm.display()
+            );
+        } else {
+            eprintln!(
+                "warehouse-load-health: ignoring inbox sidecar {}. The private copy creates its own -shm.",
+                shm.display()
+            );
+        }
+    }
+    Ok(snapshot)
+}
+
+fn read_metrics(path: &Path) -> LoadResult<Vec<MetricRow>> {
+    let snapshot = snapshot_sqlite(path)?;
+    let conn = Connection::open_with_flags(
+        &snapshot.db_path,
+        OpenFlags::SQLITE_OPEN_READ_ONLY,
+    )
+    .map_err(|e| {
+        LoadError::new(format!(
+            "open private copy of {} read-only: {e}",
+            path.display()
+        ))
+    })?;
+    let rows = read_metrics_conn(&conn)?;
+    drop(conn);
+    drop(snapshot);
     Ok(rows)
 }
 
@@ -1004,6 +1122,207 @@ mod tests {
         .unwrap_err();
         assert!(err.to_string().contains("symlink"), "{err}");
         assert_eq!(dir_parquet_count(&tmp.join("raw")), 0);
+    }
+
+    fn sources_in(file: &Path) -> Vec<String> {
+        let opened = File::open(file).unwrap();
+        let reader = ParquetRecordBatchReaderBuilder::try_new(opened)
+            .unwrap()
+            .build()
+            .unwrap();
+        let batches: Vec<_> = reader.collect::<Result<Vec<_>, _>>().unwrap();
+        let mut out = Vec::new();
+        for batch in batches {
+            let sources = batch
+                .column_by_name("source")
+                .unwrap()
+                .as_any()
+                .downcast_ref::<arrow_array::StringArray>()
+                .unwrap();
+            for i in 0..batch.num_rows() {
+                out.push(sources.value(i).to_string());
+            }
+        }
+        out
+    }
+
+    #[test]
+    fn wal_rows_come_from_the_verified_sidecar() {
+        let tmp = tempfile_dir();
+        let path = tmp.join("data.db");
+        let conn = Connection::open(&path).unwrap();
+        conn.pragma_update(None, "journal_mode", "WAL").unwrap();
+        conn.pragma_update(None, "wal_autocheckpoint", "0").unwrap();
+        conn.execute_batch(
+            "CREATE TABLE metrics (
+                id TEXT PRIMARY KEY,
+                kind TEXT NOT NULL,
+                category TEXT NOT NULL,
+                recorded_at TEXT NOT NULL,
+                day TEXT NOT NULL,
+                value REAL NOT NULL,
+                unit TEXT NOT NULL,
+                source TEXT NOT NULL,
+                raw_name TEXT,
+                notes TEXT
+            );",
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO metrics
+                (id, kind, category, recorded_at, day, value, unit, source)
+             VALUES ('wal-1', 'steps', 'activity', '2026-07-21T15:00:00+00:00', '2026-07-21', 3, 'count', 'fromwal')",
+            [],
+        )
+        .unwrap();
+        assert!(
+            sidecar_path(&path, "-wal").is_file(),
+            "expected an uncheckpointed wal"
+        );
+        let report = load(&LoadConfig {
+            sqlite_path: path,
+            raw_root: tmp.join("raw"),
+            source: "health".into(),
+        })
+        .unwrap();
+        drop(conn);
+        assert_eq!(report.rows, 1);
+        assert_eq!(sources_in(&report.files[0]), vec!["fromwal".to_string()]);
+    }
+
+    #[test]
+    fn refuses_symlinked_wal() {
+        let tmp = tempfile_dir();
+        let path = fixture(&tmp, &[sample_row()]);
+        let other = tmp.join("other.db");
+        fs::copy(&path, &other).unwrap();
+        std::os::unix::fs::symlink(&other, sidecar_path(&path, "-wal")).unwrap();
+        let err = load(&LoadConfig {
+            sqlite_path: path,
+            raw_root: tmp.join("raw"),
+            source: "health".into(),
+        })
+        .unwrap_err();
+        assert!(err.to_string().contains("symlink"), "{err}");
+        assert!(err.to_string().contains("wal"), "{err}");
+        assert_eq!(dir_parquet_count(&tmp.join("raw")), 0);
+    }
+
+    #[test]
+    fn refuses_non_regular_wal() {
+        let tmp = tempfile_dir();
+        let path = fixture(&tmp, &[sample_row()]);
+        fs::create_dir(sidecar_path(&path, "-wal")).unwrap();
+        let err = load(&LoadConfig {
+            sqlite_path: path,
+            raw_root: tmp.join("raw"),
+            source: "health".into(),
+        })
+        .unwrap_err();
+        assert!(err.to_string().contains("non-regular"), "{err}");
+        assert_eq!(dir_parquet_count(&tmp.join("raw")), 0);
+    }
+
+    #[test]
+    fn swap_race_never_reads_the_secret_database() {
+        use std::sync::atomic::{AtomicBool, Ordering};
+        use std::sync::Arc;
+
+        let tmp = tempfile_dir();
+        fs::create_dir_all(tmp.join("checked-dir")).unwrap();
+        let checked = fixture(
+            &tmp.join("checked-dir"),
+            &[(
+                "checked-id",
+                "steps",
+                "activity",
+                "2026-07-21T15:00:00+00:00",
+                "2026-07-21",
+                1.0,
+                "count",
+                "checked",
+            )],
+        );
+        let secret_dir = tmp.join("hidden");
+        fs::create_dir_all(&secret_dir).unwrap();
+        let secret = fixture(
+            &secret_dir,
+            &[(
+                "secret-0",
+                "steps",
+                "activity",
+                "2026-07-21T15:00:00+00:00",
+                "2026-07-21",
+                9.0,
+                "count",
+                "secret",
+            )],
+        );
+        let inbox = tmp.join("inbox");
+        fs::create_dir_all(&inbox).unwrap();
+        let inbox_db = inbox.join("data.db");
+        fs::hard_link(&checked, &inbox_db).unwrap();
+
+        let stop = Arc::new(AtomicBool::new(false));
+        let stop_thread = Arc::clone(&stop);
+        let inbox_thread = inbox.clone();
+        let checked_thread = checked.clone();
+        let secret_thread = secret.clone();
+        let swapper = std::thread::spawn(move || {
+            let mut i = 0u64;
+            while !stop_thread.load(Ordering::Relaxed) {
+                i = i.wrapping_add(1);
+                let tmp_a = inbox_thread.join(format!(".a{i}"));
+                if fs::hard_link(&checked_thread, &tmp_a).is_ok() {
+                    let _ = fs::rename(&tmp_a, inbox_thread.join("data.db"));
+                }
+                let tmp_s = inbox_thread.join(format!(".s{i}"));
+                if std::os::unix::fs::symlink(&secret_thread, &tmp_s).is_ok() {
+                    let _ = fs::rename(&tmp_s, inbox_thread.join("data.db"));
+                }
+            }
+        });
+
+        let mut saw_checked = 0u32;
+        let mut saw_symlink_refusal = 0u32;
+        let mut attempts = 0u32;
+        while attempts < 800 && (saw_checked < 8 || saw_symlink_refusal < 8) {
+            attempts += 1;
+            let raw = tmp.join(format!("raw-{attempts}"));
+            match load(&LoadConfig {
+                sqlite_path: inbox_db.clone(),
+                raw_root: raw,
+                source: "health".into(),
+            }) {
+                Ok(report) => {
+                    assert!(!report.files.is_empty());
+                    for file in &report.files {
+                        let sources = sources_in(file);
+                        assert!(
+                            sources.iter().all(|s| s == "checked"),
+                            "secret database was read: {sources:?}"
+                        );
+                    }
+                    saw_checked += 1;
+                }
+                Err(err) => {
+                    let msg = err.to_string();
+                    assert!(
+                        !msg.contains("secret-0"),
+                        "error leaked the secret database: {msg}"
+                    );
+                    if msg.contains("symlink") {
+                        saw_symlink_refusal += 1;
+                    }
+                }
+            }
+        }
+        stop.store(true, Ordering::Relaxed);
+        swapper.join().unwrap();
+        assert!(
+            saw_checked > 0 && saw_symlink_refusal > 0,
+            "race did not observe both a regular file and a symlink ({attempts} attempts, checked {saw_checked}, symlink {saw_symlink_refusal})"
+        );
     }
 
     #[test]

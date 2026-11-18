@@ -161,6 +161,10 @@ let
         Type = "oneshot";
         User = "warehouse";
         Group = "warehouse";
+        # Private directory for the loader's SQLite snapshot. The process
+        # reads RUNTIME_DIRECTORY and copies the verified inbox fd there.
+        RuntimeDirectory = "warehouse-load-${name}";
+        RuntimeDirectoryMode = "0700";
         # Rust loader. Leave this off the Python dbt unit.
         MemoryDenyWriteExecute = true;
       } // optionalAttrs (loader.environmentFile != null) {

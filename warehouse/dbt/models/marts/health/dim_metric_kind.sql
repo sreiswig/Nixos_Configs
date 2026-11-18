@@ -6,7 +6,7 @@
 
 with eligible as (
     select metrics.*
-    from {{ ref('stg_health__metrics') }} as metrics
+    from {{ ref('int_health__metrics_accepted') }} as metrics
     inner join {{ ref('health_kind_agg') }} as rules
         on metrics.kind = rules.kind
         and metrics.unit = rules.canonical_unit

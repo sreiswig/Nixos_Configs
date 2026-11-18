@@ -131,6 +131,18 @@
                 "sqlite3 /var/lib/warehouse/inbox/health/data.db "
                 + "\"INSERT INTO metrics VALUES ('11111111-1111-4111-8111-111111111111', 'resting_heart_rate_bpm', 'heart', '2026-07-21T15:00:00+00:00', '2026-07-21', 58, 'beats per minute', 'Apple Watch', 'Apple Watch', 'route a/b');\""
             )
+            machine.succeed(
+                "sqlite3 /var/lib/warehouse/inbox/health/data.db "
+                + "\"INSERT INTO metrics VALUES ('22222222-2222-4222-8222-222222222222', 'body_fat_pct', 'body', '2026-07-21T15:00:00+00:00', '2026-07-21', 0, '%', 'scale', 'scale', NULL);\""
+            )
+            machine.succeed(
+                "sqlite3 /var/lib/warehouse/inbox/health/data.db "
+                + "\"INSERT INTO metrics VALUES ('33333333-3333-4333-8333-333333333333', 'sleep_efficiency_pct', 'sleep', '2026-07-21T15:00:00+00:00', '2026-07-21', 1, '%', 'band', 'band', NULL);\""
+            )
+            machine.succeed(
+                "sqlite3 /var/lib/warehouse/inbox/health/data.db "
+                + "\"INSERT INTO metrics VALUES ('44444444-4444-4444-8444-444444444444', 'spo2_pct', 'body', '2026-07-21T15:00:00+00:00', '2026-07-21', 98, '%', 'band', 'band', NULL);\""
+            )
             machine.succeed("chown warehouse:warehouse /var/lib/warehouse/inbox/health/data.db")
             machine.succeed("chmod 0640 /var/lib/warehouse/inbox/health/data.db")
             machine.succeed("systemctl start warehouse-load-health.service")
@@ -217,6 +229,29 @@
                 chmod 0600 "$pass"
                 "$cond"
                 "$pre"
+                """
+            )
+
+            # A symlinked inbox database is refused and does not publish Parquet.
+            machine.succeed(
+                "sqlite3 /tmp/secret.db "
+                + "\"CREATE TABLE metrics (id TEXT PRIMARY KEY, kind TEXT NOT NULL, category TEXT NOT NULL, recorded_at TEXT NOT NULL, day TEXT NOT NULL, value REAL NOT NULL, unit TEXT NOT NULL, source TEXT NOT NULL, raw_name TEXT, notes TEXT);\""
+            )
+            machine.succeed(
+                "sqlite3 /tmp/secret.db "
+                + "\"INSERT INTO metrics VALUES ('secret-0', 'steps', 'activity', '2026-07-21T15:00:00+00:00', '2026-07-21', 1, 'count', 'secret', NULL, NULL);\""
+            )
+            machine.succeed("ln -sfn /tmp/secret.db /var/lib/warehouse/inbox/health/secret-link.db")
+            machine.succeed(
+                r"""
+                set -eu
+                set +e
+                out=$(warehouse-load-health --sqlite /var/lib/warehouse/inbox/health/secret-link.db --raw-root /tmp/wh-sym-raw --source health 2>&1)
+                rc=$?
+                set -e
+                test "$rc" -ne 0
+                printf '%s\n' "$out" | grep -F symlink
+                test ! -e /tmp/wh-sym-raw/health
                 """
             )
           '';
