@@ -340,9 +340,9 @@ in
       warehousePython
     ];
 
-    # Layout. inbox/health is group-writable so sam can drop data.db and
-    # so the loader can create or update data.db-shm for a WAL read.
-    # immutable=1 is not used: it would ignore data.db-wal.
+    # Layout. inbox/health is group-writable so sam can drop data.db.
+    # The loader only reads that directory. SQLite sidecars are created in
+    # the loader's private snapshot dir, not in the inbox.
     # raw/ stays 0750. UMask=0027 on the units makes new files 0640.
     systemd.tmpfiles.rules = [
       "d ${cfg.dataDir} 0750 warehouse warehouse - -"

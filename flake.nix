@@ -143,9 +143,27 @@
                 "sqlite3 /var/lib/warehouse/inbox/health/data.db "
                 + "\"INSERT INTO metrics VALUES ('44444444-4444-4444-8444-444444444444', 'spo2_pct', 'body', '2026-07-21T15:00:00+00:00', '2026-07-21', 98, '%', 'band', 'band', NULL);\""
             )
+            machine.succeed(
+                "sqlite3 /var/lib/warehouse/inbox/health/data.db "
+                + "\"PRAGMA journal_mode=WAL; PRAGMA wal_checkpoint(TRUNCATE);\""
+            )
+            machine.succeed("rm -f /var/lib/warehouse/inbox/health/data.db-wal /var/lib/warehouse/inbox/health/data.db-shm")
             machine.succeed("chown warehouse:warehouse /var/lib/warehouse/inbox/health/data.db")
             machine.succeed("chmod 0640 /var/lib/warehouse/inbox/health/data.db")
             machine.succeed("systemctl start warehouse-load-health.service")
+            machine.succeed("test \"$(systemctl show -p Result --value warehouse-load-health.service)\" = success")
+            machine.succeed("test ! -e /var/lib/warehouse/inbox/health/data.db-wal")
+            machine.succeed("test ! -e /var/lib/warehouse/inbox/health/data.db-shm")
+            machine.succeed("systemctl start warehouse-load-health.service")
+            machine.succeed("test \"$(systemctl show -p Result --value warehouse-load-health.service)\" = success")
+            machine.succeed("test ! -e /var/lib/warehouse/inbox/health/data.db-wal")
+            machine.succeed("test ! -e /var/lib/warehouse/inbox/health/data.db-shm")
+            machine.succeed("install -o warehouse -g warehouse -m 0640 /dev/null /var/lib/warehouse/inbox/health/data.db-wal")
+            machine.succeed("systemctl start warehouse-load-health.service")
+            machine.succeed("test \"$(systemctl show -p Result --value warehouse-load-health.service)\" = success")
+            machine.succeed("test -f /var/lib/warehouse/inbox/health/data.db-wal")
+            machine.succeed("test ! -s /var/lib/warehouse/inbox/health/data.db-wal")
+            machine.succeed("test ! -e /var/lib/warehouse/inbox/health/data.db-shm")
             machine.succeed("systemctl start warehouse-dbt.service")
             machine.succeed("systemctl start warehouse-dbt.service")
             machine.fail("systemctl is-failed warehouse-dbt.service")
