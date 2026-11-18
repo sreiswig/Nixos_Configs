@@ -141,7 +141,7 @@ services.dataWarehouse.loaders.<name> = {
 4. Add a staging view `stg_<source>__<entity>` (rename, cast, dedupe on the natural key, keep the latest `_loaded_at`), then `int_<topic>` for joins and `fct_<event>` / `dim_<thing>` marts. Put the DuckDB schema on the domain (`health`, `portfolio`, or `ops`).
 5. Add `unique` and `not_null` on keys, `accepted_values` on kinds and units, and source freshness on `_loaded_at`.
 
-The loader unit template is `warehouse-load-<name>.service`: user `warehouse`, `ProtectSystem=strict`, `ReadWritePaths` limited to the data dir, `ProtectHome`, `PrivateTmp`, `NoNewPrivileges`, empty `CapabilityBoundingSet`, `UMask=0027`, `MemoryDenyWriteExecute`. Network is off unless the loader sets `network = true` (`PrivateNetwork` and `RestrictAddressFamilies=AF_UNIX` otherwise). The health loader reads a local file and leaves `network` at the default. A future AI_Dispatch Postgres loader would set `network = true`.
+The loader unit template is `warehouse-load-<name>.service`, user `warehouse`. Sandbox on every warehouse unit: `ProtectSystem=strict`, `ReadWritePaths` limited to the data dir, `ProtectHome`, `PrivateTmp`, `NoNewPrivileges`, empty `CapabilityBoundingSet`, `SystemCallFilter=@system-service`, `UMask=0027`, `PrivateDevices`, `ProtectKernelTunables`, `ProtectKernelModules`, `ProtectKernelLogs`, `ProtectControlGroups`, `ProtectClock`, `ProtectHostname`, `ProtectProc=invisible`, `RestrictNamespaces`, `RestrictSUIDSGID`, `LockPersonality`, `RestrictRealtime`, `SystemCallArchitectures=native`. `MemoryDenyWriteExecute` is on loaders only. The dbt unit uses the same sandbox without that flag. Network is off unless the loader sets `network = true` (`PrivateNetwork` and `RestrictAddressFamilies=AF_UNIX` otherwise). The health loader reads a local file and leaves `network` at the default. A future AI_Dispatch Postgres loader would set `network = true`.
 
 ## Query over Tailscale
 
@@ -218,6 +218,15 @@ The default `python3` in this pin is 3.14. `dbt-semantic-interfaces`, which `dbt
 `warehouse-dbt.service` sets `DBT_SEND_ANONYMOUS_USAGE_STATS=false` and `DO_NOT_TRACK=1`, and it runs with `PrivateNetwork=true` and `RestrictAddressFamilies=AF_UNIX`. The health loader uses the same network sandbox.
 
 ## After `nh os switch`
+
+Start dbt once by hand before trusting the timer. That run imports `dbt-common` inside the unit, which is the check that the pathspec relax in the overlay is enough (the package import check does not load dbt's runtime deps the same way):
+
+```bash
+sudo systemctl start warehouse-dbt
+journalctl -u warehouse-dbt -n 80 --no-pager
+```
+
+If `raw/` has no Parquet yet, the journal shows the skip line and the unit is not failed. Put `data.db` in the inbox, start `warehouse-load-health`, then start `warehouse-dbt` again and confirm the journal shows `dbt build` finishing.
 
 ```bash
 systemctl list-timers 'warehouse-*'
