@@ -105,7 +105,7 @@ sudo systemctl start warehouse-load-health.service
 `fct_health_daily` does not keep a single latest row for every kind. groktor inserts with `INSERT OR IGNORE` on the UUID, so samples during a day and re-ingests are separate rows after dedupe on `id`. The seed `health_kind_agg` maps each kind to a rule:
 
 - `sum` for additive kinds (`steps`, `active_calories_kcal`, `exercise_minutes`, plus distance, floors, and sleep durations)
-- `latest` for point-in-time kinds (resting heart rate, HRV, heart rate, weight, percentages, scores). `value` is the sample with the latest `recorded_at`. `value_avg`, `value_min`, and `value_max` are stored for every kind.
+- `latest` for point-in-time kinds (resting heart rate, HRV, heart rate, weight, percentages, scores). `value`, `unit`, and `_loaded_at` come from one row: latest `recorded_at`, then latest `_loaded_at`, then `metric_id`. `value_avg`, `value_min`, and `value_max` are stored for every kind.
 
 A test fails the build when a staged kind has no seed row, and when a kind from the `accepted_values` list has no seed row. Staging renames unit aliases and converts the value into the kind's canonical unit (`sec` and `seconds` become minutes or hours, `hrs` becomes minutes when the kind is in minutes). A test fails when one `source_day` and kind still has more than one unit after that. `accepted_values` on `kind` and `unit` is severity `warn` until an Amazfit or Zepp parser lands. There is no `unknown` unit.
 
@@ -151,7 +151,7 @@ duckdb -readonly /var/lib/warehouse/warehouse.duckdb
 ```
 
 ```sql
-select local_date, kind, value, unit
+select source_day, kind, value, unit
 from health.fct_health_daily
 order by source_day desc
 limit 20;
