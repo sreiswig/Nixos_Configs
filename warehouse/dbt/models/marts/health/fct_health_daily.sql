@@ -1,7 +1,8 @@
 -- One row per groktor metrics.day (source_day) and kind.
--- Additive kinds sum every sample. Point-in-time kinds keep the latest
--- recorded_at and still expose avg, min, and max of the samples.
--- The rule list is the seed health_kind_agg.
+-- Additive kinds sum every sample. Point-in-time kinds keep the value from
+-- one winning row. That row is the latest (recorded_at, _loaded_at, metric_id).
+-- unit, local_date, and _loaded_at always come from that same row.
+-- value_avg, value_min, and value_max describe every sample in the group.
 
 with rules as (
     select kind, agg_rule
@@ -17,46 +18,56 @@ sampled as (
         on metrics.kind = rules.kind
 ),
 
-grouped as (
+ranked as (
+    select
+        *,
+        row_number() over (
+            partition by source_day, kind
+            order by recorded_at desc, _loaded_at desc, metric_id desc
+        ) as _pick
+    from sampled
+),
+
+winner as (
+    select *
+    from ranked
+    where _pick = 1
+),
+
+aggs as (
     select
         source_day,
         kind,
-        any_value(agg_rule) as agg_rule,
         count(*) as sample_count,
         sum(value) as value_sum,
         avg(value) as value_avg,
         min(value) as value_min,
-        max(value) as value_max,
-        arg_max(value, recorded_at) as value_latest,
-        arg_max(local_date, recorded_at) as local_date,
-        arg_max(category, recorded_at) as category,
-        arg_max(unit, recorded_at) as unit,
-        arg_max(source, recorded_at) as source,
-        arg_max(metric_id, recorded_at) as metric_id,
-        max(recorded_at) as recorded_at,
-        max(_loaded_at) as _loaded_at
+        max(value) as value_max
     from sampled
     group by source_day, kind
 )
 
 select
-    source_day || '|' || kind as metric_day_key,
-    source_day,
-    local_date,
-    kind,
-    category,
-    unit,
-    agg_rule,
+    winner.source_day || '|' || winner.kind as metric_day_key,
+    winner.source_day,
+    winner.local_date,
+    winner.kind,
+    winner.category,
+    winner.unit,
+    winner.agg_rule,
     case
-        when agg_rule = 'sum' then value_sum
-        else value_latest
+        when winner.agg_rule = 'sum' then aggs.value_sum
+        else winner.value
     end as value,
-    value_avg,
-    value_min,
-    value_max,
-    sample_count,
-    source,
-    metric_id,
-    recorded_at,
-    _loaded_at
-from grouped
+    aggs.value_avg,
+    aggs.value_min,
+    aggs.value_max,
+    aggs.sample_count,
+    winner.source,
+    winner.metric_id,
+    winner.recorded_at,
+    winner._loaded_at
+from winner
+inner join aggs
+    on winner.source_day = aggs.source_day
+    and winner.kind = aggs.kind

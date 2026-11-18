@@ -67,7 +67,7 @@ models:
           - accepted_values:
               config:
                 severity: warn
-              values: ["hours", "%", "bpm", "ms", "count", "kcal", "min", "kg", "score", "s"]
+              values: ["hours", "%", "bpm", "ms", "count", "kcal", "min", "kg", "score", "s", "m"]
       - name: category
         tests:
           - not_null
@@ -117,7 +117,7 @@ models:
           - accepted_values:
               config:
                 severity: warn
-              values: ["hours", "%", "bpm", "ms", "count", "kcal", "min", "kg", "score", "s"]
+              values: ["hours", "%", "bpm", "ms", "count", "kcal", "min", "kg", "score", "s", "m"]
       - name: observation_count
         tests: [not_null]
       - name: first_source_day

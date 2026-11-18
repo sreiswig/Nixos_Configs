@@ -107,9 +107,9 @@ sudo systemctl start warehouse-load-health.service
 - `sum` for additive kinds (`steps`, `active_calories_kcal`, `exercise_minutes`, plus distance, floors, and sleep durations)
 - `latest` for point-in-time kinds (resting heart rate, HRV, heart rate, weight, percentages, scores). `value` is the sample with the latest `recorded_at`. `value_avg`, `value_min`, and `value_max` are stored for every kind.
 
-A test fails the build when a staged kind has no seed row. Staging folds unit aliases (`percent` to `%`, `hrs` to `hours`, `minutes` to `min`, `steps` to `count`, `sec` to `s`). `accepted_values` on `kind` and `unit` is severity `warn` until an Amazfit or Zepp parser lands. There is no `unknown` unit.
+A test fails the build when a staged kind has no seed row, and when a kind from the `accepted_values` list has no seed row. Staging renames unit aliases and converts the value into the kind's canonical unit (`sec` and `seconds` become minutes or hours, `hrs` becomes minutes when the kind is in minutes). A test fails when one `source_day` and kind still has more than one unit after that. `accepted_values` on `kind` and `unit` is severity `warn` until an Amazfit or Zepp parser lands. There is no `unknown` unit.
 
-Other tests: `unique` and `not_null` on keys, `accepted_values` on `category`, `relationships` from the fact to the dimension, and a singular test that `local_date` equals the hive `dt`. Source `health.metrics` has freshness on `_loaded_at` (warn after 36 hours, error after 72). `warehouse-dbt.service` runs `dbt build` and then `dbt source freshness` when at least one Parquet file exists. `ExecCondition` exits 255 otherwise, and systemd skips the unit instead of marking it failed. An empty loader run (zero files) still has `OnSuccess`, and that condition skips dbt.
+Other tests: `unique` and `not_null` on keys, `accepted_values` on `category`, `relationships` from the fact to the dimension, and a singular test that `local_date` equals the hive `dt`. Source `health.metrics` has freshness on `_loaded_at` (warn after 36 hours, error after 72). `warehouse-dbt.service` runs `dbt build` and then `dbt source freshness` when at least one Parquet file exists. `ExecCondition` exits 1 otherwise. Exit codes 1 through 254 skip the unit and leave it inactive. Exit 255 would mark it failed, so the guard does not use 255. An empty loader run (zero files) still has `OnSuccess`, and that condition skips dbt.
 
 ## Schedules
 
@@ -153,7 +153,7 @@ duckdb -readonly /var/lib/warehouse/warehouse.duckdb
 ```sql
 select local_date, kind, value, unit
 from health.fct_health_daily
-order by local_date desc
+order by source_day desc
 limit 20;
 ```
 
@@ -226,7 +226,7 @@ sudo systemctl start warehouse-dbt
 journalctl -u warehouse-dbt -n 80 --no-pager
 ```
 
-If `raw/` has no Parquet yet, the journal shows the skip line and the unit is not failed. Put `data.db` in the inbox, start `warehouse-load-health`, then start `warehouse-dbt` again and confirm the journal shows `dbt build` finishing.
+If `raw/` has no Parquet yet, the journal shows the skip line. `ExecCondition` exits 1, so systemd leaves the unit inactive and does not mark it failed. Put `data.db` in the inbox, start `warehouse-load-health`, then start `warehouse-dbt` again and confirm the journal shows `dbt build` finishing.
 
 ```bash
 systemctl list-timers 'warehouse-*'
@@ -239,7 +239,7 @@ systemd-analyze security warehouse-load-health
 
 Expect the health and dbt timers. Expect no restic timer while `backup.enable` is false. `ss` should show the same listeners as before this module (no new warehouse port). `ls` should show `drwxr-x---` for the data dir and `drwxrws---` for `inbox/health`. `systemd-analyze security` is the sandbox report for the dbt unit and the health loader.
 
-Until `/var/lib/warehouse/inbox/health/data.db` exists, `warehouse-load-health.service` fails on purpose. With no Parquet under `raw/`, `warehouse-dbt.service` is skipped (`ExecCondition` exit 255) and is not a failed unit.
+Until `/var/lib/warehouse/inbox/health/data.db` exists, `warehouse-load-health.service` fails on purpose. With no Parquet under `raw/`, `warehouse-dbt.service` is skipped (`ExecCondition` exit 1) and stays inactive. Exit 255 would fail the unit.
 
 ## Rollback
 
@@ -271,5 +271,6 @@ AI_Dispatch Postgres tables `token_usage` and `ai_requests`, via a read-only rol
 8. AIServer is the host (`hosts/AIServer`). Say if the warehouse should live somewhere else.
 9. `accepted_values` for `kind` and `unit` warn until a device parser lands. A kind with no `health_kind_agg` row still fails `dbt build`. Are the seed rules and the warn lists what you want once Amazfit names show up?
 10. Source freshness is 36h warn / 72h error on `_loaded_at`. Adjust if the watch syncs less often.
+11. A re-ingest that mints a new UUID for the same observation double-counts summed kinds. personal_groktor has no unique key on `(kind, day, source)` (`INSERT OR IGNORE` is on `id` only). That fix belongs in groktor if you want it.
 
 The aggregation rules per kind (seed `health_kind_agg`) and the daily grain (`source_day`, groktor's `metrics.day`) are Data Architect recommendations. Sam can override either one.

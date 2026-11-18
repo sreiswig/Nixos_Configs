@@ -61,7 +61,7 @@ models:
           - accepted_values:
               config:
                 severity: warn
-              values: ["hours", "%", "bpm", "ms", "count", "kcal", "min", "kg", "score", "s"]
+              values: ["hours", "%", "bpm", "ms", "count", "kcal", "min", "kg", "score", "s", "m"]
       - name: source
         tests: [not_null]
       - name: _loaded_at

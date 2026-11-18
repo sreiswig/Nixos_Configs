@@ -75,18 +75,19 @@ let
     RestrictAddressFamilies = [ "AF_UNIX" "AF_INET" "AF_INET6" ];
   };
 
-  # Exit 255 tells systemd the condition missed: the unit is skipped, not failed.
+  # ExecCondition: 1-254 skips the unit and leaves it inactive.
+  # 255 marks the unit failed. Use 1 when there is nothing to build.
   dbtHasRawParquet = pkgs.writeShellScript "warehouse-dbt-has-parquet" ''
     set -eu
     raw="${cfg.dataDir}/raw"
     if [ ! -d "$raw" ]; then
       echo "warehouse-dbt: $raw is missing; skipping"
-      exit 255
+      exit 1
     fi
     if ! ${pkgs.findutils}/bin/find "$raw" -type f -name '*.parquet' -print -quit \
       | ${pkgs.gnugrep}/bin/grep -q .; then
       echo "warehouse-dbt: no parquet under raw/; skipping build"
-      exit 255
+      exit 1
     fi
   '';
 

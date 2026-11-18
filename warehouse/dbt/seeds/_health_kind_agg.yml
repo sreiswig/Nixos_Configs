@@ -16,3 +16,5 @@ seeds:
           - not_null
           - accepted_values:
               values: ["sum", "latest"]
+      - name: canonical_unit
+        tests: [not_null]

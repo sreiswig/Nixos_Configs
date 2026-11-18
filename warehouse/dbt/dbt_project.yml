@@ -36,3 +36,4 @@ seeds:
       +column_types:
         kind: varchar
         agg_rule: varchar
+        canonical_unit: varchar
