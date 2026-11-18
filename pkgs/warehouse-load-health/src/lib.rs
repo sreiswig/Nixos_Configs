@@ -2135,35 +2135,10 @@ mod tests {
         let inbox_db = inbox.join("data.db");
         fs::hard_link(&checked, &inbox_db).unwrap();
 
-        let stop = Arc::new(AtomicBool::new(false));
-        let stop_thread = Arc::clone(&stop);
-        let inbox_thread = inbox.clone();
-        let checked_thread = checked.clone();
-        let secret_thread = secret.clone();
-        let swapper = std::thread::spawn(move || {
-            let mut i = 0u64;
-            while !stop_thread.load(Ordering::Relaxed) {
-                i = i.wrapping_add(1);
-                let tmp_a = inbox_thread.join(format!(".a{i}"));
-                if fs::hard_link(&checked_thread, &tmp_a).is_ok() {
-                    let _ = fs::rename(&tmp_a, inbox_thread.join("data.db"));
-                }
-                let tmp_s = inbox_thread.join(format!(".s{i}"));
-                if std::os::unix::fs::symlink(&secret_thread, &tmp_s).is_ok() {
-                    let _ = fs::rename(&tmp_s, inbox_thread.join("data.db"));
-                }
-            }
-        });
-
-        let mut saw_checked = 0u32;
-        let mut saw_symlink_refusal = 0u32;
-        let mut attempts = 0u32;
-        while attempts < 800 && (saw_checked < 8 || saw_symlink_refusal < 8) {
-            attempts += 1;
-            let raw = tmp.join(format!("raw-{attempts}"));
+        let assert_not_secret = |raw: &Path| {
             match load(&LoadConfig {
                 sqlite_path: inbox_db.clone(),
-                raw_root: raw,
+                raw_root: raw.to_path_buf(),
                 source: "health".into(),
             }) {
                 Ok(report) => {
@@ -2175,7 +2150,7 @@ mod tests {
                             "secret database was read: {sources:?}"
                         );
                     }
-                    saw_checked += 1;
+                    true
                 }
                 Err(err) => {
                     let msg = err.to_string();
@@ -2183,18 +2158,61 @@ mod tests {
                         !msg.contains("secret-0"),
                         "error leaked the secret database: {msg}"
                     );
-                    if msg.contains("symlink") {
-                        saw_symlink_refusal += 1;
-                    }
+                    false
                 }
             }
+        };
+
+        // Each good file is a new inode. Renaming a second hardlink of the
+        // same inode is a no-op and leaks the temp link until EMLINK, after
+        // which the inbox stays a symlink and the race never sees a database.
+        let install_checked = |name: &str| {
+            let fresh = inbox.join(name);
+            fs::copy(&checked, &fresh).unwrap();
+            fs::rename(&fresh, &inbox_db).unwrap();
+        };
+
+        for n in 0..4 {
+            install_checked(&format!(".good{n}"));
+            assert!(
+                assert_not_secret(&tmp.join(format!("stable-{n}"))),
+                "stable regular file did not load"
+            );
+            let link = inbox.join(format!(".link{n}"));
+            std::os::unix::fs::symlink(&secret, &link).unwrap();
+            fs::rename(&link, &inbox_db).unwrap();
+            assert!(
+                !assert_not_secret(&tmp.join(format!("link-{n}"))),
+                "symlink was published"
+            );
+        }
+
+        let stop = Arc::new(AtomicBool::new(false));
+        let stop_thread = Arc::clone(&stop);
+        let inbox_thread = inbox.clone();
+        let checked_thread = checked.clone();
+        let secret_thread = secret.clone();
+        let swapper = std::thread::spawn(move || {
+            let mut i = 0u64;
+            while !stop_thread.load(Ordering::Relaxed) {
+                i = i.wrapping_add(1);
+                let tmp_a = inbox_thread.join(format!(".a{i}"));
+                if fs::copy(&checked_thread, &tmp_a).is_ok() {
+                    let _ = fs::rename(&tmp_a, inbox_thread.join("data.db"));
+                    let _ = fs::remove_file(&tmp_a);
+                }
+                let tmp_s = inbox_thread.join(format!(".s{i}"));
+                if std::os::unix::fs::symlink(&secret_thread, &tmp_s).is_ok() {
+                    let _ = fs::rename(&tmp_s, inbox_thread.join("data.db"));
+                    let _ = fs::remove_file(&tmp_s);
+                }
+            }
+        });
+        for n in 0..40 {
+            let _ = assert_not_secret(&tmp.join(format!("race-{n}")));
         }
         stop.store(true, Ordering::Relaxed);
         swapper.join().unwrap();
-        assert!(
-            saw_checked > 0 && saw_symlink_refusal > 0,
-            "race did not observe both a regular file and a symlink ({attempts} attempts, checked {saw_checked}, symlink {saw_symlink_refusal})"
-        );
     }
 
     #[test]
