@@ -92,21 +92,51 @@ let
   '';
 
   # Exit 1 skips. Exit 255 would mark the unit failed.
+  # Placeholder means: missing, empty, whitespace-only, any quoted value,
+  # or the whole token PLACEHOLDER or TODO in any case.
   resticRepoReady = pkgs.writeShellScript "warehouse-restic-ready" ''
     set -eu
-    repo="${cfg.backup.repositoryFile}"
+    exec ${pkgs.python3}/bin/python3 - ${lib.escapeShellArg cfg.backup.repositoryFile} ${lib.escapeShellArg cfg.backup.passwordFile} <<'PY'
+    import pathlib, sys
+    repo, pw = sys.argv[1], sys.argv[2]
+    path = pathlib.Path(repo)
+    if not path.is_file():
+        print("warehouse restic: repository file missing; skipping", file=sys.stderr)
+        sys.exit(1)
+    text = path.read_text(errors="replace").replace("\r", "").strip()
+    if not text:
+        print("warehouse restic: repository file empty or whitespace; skipping", file=sys.stderr)
+        sys.exit(1)
+    if len(text) >= 2 and text[0] == text[-1] and text[0] in ("'", '"'):
+        print("warehouse restic: repository file is a quoted placeholder; skipping", file=sys.stderr)
+        sys.exit(1)
+    if text.lower() in ("placeholder", "todo"):
+        print("warehouse restic: repository file is still a placeholder; skipping", file=sys.stderr)
+        sys.exit(1)
+    secret = pathlib.Path(pw)
+    if not secret.is_file() or secret.stat().st_size == 0:
+        print("warehouse restic: password file missing or empty; skipping", file=sys.stderr)
+        sys.exit(1)
+    PY
+  '';
+
+  # Runs only after the repo check passes. A bad mode fails the unit
+  # (ExecStartPre), it does not use exit 255.
+  resticPasswordMode = pkgs.writeShellScript "warehouse-restic-password-mode" ''
+    set -eu
     pass="${cfg.backup.passwordFile}"
-    if [ ! -s "$repo" ]; then
-      echo "warehouse restic: repository file missing or empty; skipping"
+    if [ ! -e "$pass" ]; then
+      echo "warehouse restic: password file $pass is missing" >&2
       exit 1
     fi
-    token="$(${pkgs.coreutils}/bin/tr -d '[:space:]' < "$repo")"
-    if [ "$token" = "PLACEHOLDER" ]; then
-      echo "warehouse restic: repository file is still PLACEHOLDER; skipping"
-      exit 1
-    fi
-    if [ ! -s "$pass" ]; then
-      echo "warehouse restic: password file missing or empty; skipping"
+    owner=$(${pkgs.coreutils}/bin/stat -c '%u' "$pass")
+    mode=$(${pkgs.coreutils}/bin/stat -c '%a' "$pass")
+    case "$mode" in
+      400|600|0400|0600) ok=1 ;;
+      *) ok=0 ;;
+    esac
+    if [ "$owner" != "0" ] || [ "$ok" != "1" ]; then
+      echo "warehouse restic: $pass must be root-owned mode 0400 or 0600 (owner $owner mode $mode)" >&2
       exit 1
     fi
   '';
@@ -203,7 +233,8 @@ in
             description = ''
               Extra environment variables for the loader unit.
               WAREHOUSE_DATA_DIR is always set. An environmentFile overrides
-              keys it defines.
+              keys it defines. Never put secrets here; they are copied into
+              the world-readable unit file. Use environmentFile on the host.
             '';
           };
 
@@ -257,17 +288,37 @@ in
         type = types.str;
         default = "/etc/restic/warehouse-password";
         description = ''
-          Root-owned mode 0400 file containing the restic password.
-          Create it on the host. This module does not write it.
+          Root-owned file containing the restic password, mode 0400 or 0600.
+          Create it on the host. This module does not write it. ExecStartPre
+          refuses to run when the owner is not root or the mode is anything else.
         '';
       };
     };
   };
 
   config = mkIf cfg.enable {
-    assertions = mapAttrsToList (name: _: {
+    assertions = [
+      {
+        assertion =
+          !(hasPrefix builtins.storeDir cfg.backup.passwordFile)
+          && !(hasPrefix builtins.storeDir cfg.backup.repositoryFile);
+        message = ''
+          services.dataWarehouse backup repositoryFile and passwordFile must be
+          host paths outside the Nix store. A Nix path or ''${./file} interpolation
+          would copy the secret into the world-readable store.
+        '';
+      }
+    ] ++ mapAttrsToList (name: loader: {
       assertion = builtins.match "[a-z][a-z0-9_-]*" name != null;
       message = "services.dataWarehouse.loaders.${name} must match [a-z][a-z0-9_-]*";
+    }) cfg.loaders
+    ++ mapAttrsToList (name: loader: {
+      assertion = loader.environmentFile == null
+        || !(hasPrefix builtins.storeDir loader.environmentFile);
+      message = ''
+        services.dataWarehouse.loaders.${name}.environmentFile must be a host
+        path outside the Nix store.
+      '';
     }) cfg.loaders;
 
     users.users.warehouse = {
@@ -375,7 +426,10 @@ in
       };
     } // optionalAttrs cfg.backup.enable {
       restic-backups-warehouse = {
-        serviceConfig.ExecCondition = resticRepoReady;
+        serviceConfig = {
+          ExecCondition = resticRepoReady;
+          ExecStartPre = resticPasswordMode;
+        };
       };
       warehouse-restic-check = {
         description = "Monthly restic check of the warehouse repository";
@@ -386,6 +440,7 @@ in
           User = "root";
           CacheDirectory = "restic-backups-warehouse";
           ExecCondition = resticRepoReady;
+          ExecStartPre = resticPasswordMode;
           ExecStart = "${lib.getExe pkgs.restic} check";
           Environment = [
             "RESTIC_PASSWORD_FILE=${cfg.backup.passwordFile}"
@@ -420,8 +475,9 @@ in
     # Raw Parquet and the copied dbt project. warehouse.duckdb is rebuildable
     # with `dbt build`, so it is not in paths. initialize stays false.
     # restic-backups-warehouse skips (ExecCondition exit 1) while the repo
-    # file is missing, empty, or still PLACEHOLDER, or the password file
-    # is missing. Exit 255 would fail the unit.
+    # file is missing, empty, whitespace, quoted, or PLACEHOLDER/TODO in
+    # any case, or the password file is missing. Exit 255 would fail the unit.
+    # ExecStartPre then requires the password file to be root and 0400/0600.
     services.restic.backups = optionalAttrs cfg.backup.enable {
       warehouse = {
         initialize = false;

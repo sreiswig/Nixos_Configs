@@ -75,7 +75,9 @@ models:
               values: ["sleep", "heart", "activity", "body", "recovery", "other"]
 
   - name: dim_metric_kind
-    description: Metric kind dimension. Date span is source_day.
+    description: >
+      Metric kind dimension. Date span is source_day.
+      Only rows whose unit equals the seed canonical unit are kept.
     columns:
       - name: kind
         tests:

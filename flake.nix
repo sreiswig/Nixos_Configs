@@ -138,7 +138,127 @@
             machine.succeed("systemctl start warehouse-dbt.service")
             machine.fail("systemctl is-failed warehouse-dbt.service")
             machine.succeed("test \"$(systemctl show -p Result --value warehouse-dbt.service)\" = success")
+
+            # Placeholder variants skip (exit 1, Result=exec-condition).
+            # A real repo plus a bad password mode fails the unit.
+            # Root and mode 0400 or 0600 pass the guard scripts.
+            machine.succeed(
+                r"""
+                set -eu
+                repo=/etc/restic/warehouse-repo
+                pass=/etc/restic/warehouse-password
+                install -d -m 0700 /etc/restic
+                install -m 0600 /dev/null "$pass"
+                printf '%s\n' secret > "$pass"
+                chmod 0400 "$pass"
+                chown root:root "$pass"
+                skip_case() {
+                  systemctl reset-failed restic-backups-warehouse.service warehouse-restic-check.service || true
+                  systemctl start restic-backups-warehouse.service
+                  systemctl start warehouse-restic-check.service
+                  test "$(systemctl show -p Result --value restic-backups-warehouse.service)" = exec-condition
+                  test "$(systemctl show -p Result --value warehouse-restic-check.service)" = exec-condition
+                  if systemctl is-failed restic-backups-warehouse.service; then
+                    echo "backup unit failed on a placeholder"
+                    exit 1
+                  fi
+                  if systemctl is-failed warehouse-restic-check.service; then
+                    echo "check unit failed on a placeholder"
+                    exit 1
+                  fi
+                }
+                : > "$repo"
+                skip_case
+                printf ' \t \n' > "$repo"
+                skip_case
+                printf '""\n' > "$repo"
+                skip_case
+                printf "'PLACEHOLDER'\n" > "$repo"
+                skip_case
+                printf '"placeholder"\n' > "$repo"
+                skip_case
+                printf 'todo\n' > "$repo"
+                skip_case
+                printf 'TODO\n' > "$repo"
+                skip_case
+                printf '  ToDo  \n' > "$repo"
+                skip_case
+                printf 'placeholder\n' > "$repo"
+                skip_case
+                printf '%s\n' 'sftp:backup@host.example:/warehouse' > "$repo"
+                chmod 0644 "$pass"
+                chown root:root "$pass"
+                systemctl reset-failed restic-backups-warehouse.service || true
+                if systemctl start restic-backups-warehouse.service; then
+                  echo "mode 0644 was accepted"
+                  exit 1
+                fi
+                systemctl is-failed restic-backups-warehouse.service
+                journalctl -u restic-backups-warehouse.service --no-pager | grep -F '0400 or 0600'
+                chmod 0600 "$pass"
+                chown 1000:0 "$pass"
+                systemctl reset-failed restic-backups-warehouse.service || true
+                if systemctl start restic-backups-warehouse.service; then
+                  echo "non-root password file was accepted"
+                  exit 1
+                fi
+                systemctl is-failed restic-backups-warehouse.service
+                journalctl -u restic-backups-warehouse.service --no-pager | grep -F 'must be root-owned'
+                chown root:root "$pass"
+                chmod 0400 "$pass"
+                cond=$(systemctl cat restic-backups-warehouse.service | awk -F= '/^ExecCondition=/ { print $2; exit }')
+                pre=$(systemctl cat restic-backups-warehouse.service | awk -F= '/^ExecStartPre=.*password-mode/ { print $2; exit }')
+                echo "cond=$cond"
+                echo "pre=$pre"
+                test -x "$cond"
+                test -x "$pre"
+                "$cond"
+                "$pre"
+                chmod 0600 "$pass"
+                "$cond"
+                "$pre"
+                """
+            )
           '';
         };
+
+      # Eval-time check: a store path in a secret option must fail an assertion.
+      # The happy path is the warehouse VM test above (host paths under /etc).
+      checks.x86_64-linux.warehouse-secret-paths =
+        let
+          pkgs = import nixpkgs {
+            inherit system;
+            config.allowUnfree = true;
+          };
+          evalBad = nixpkgs.lib.nixosSystem {
+            inherit system;
+            modules = [
+              ./modules/services/data-warehouse.nix
+              ({ ... }: {
+                boot.isContainer = true;
+                system.stateVersion = "24.11";
+                users.users.sam.isNormalUser = true;
+                nixpkgs.overlays = [ (import ./overlays/default.nix) ];
+                services.dataWarehouse = {
+                  enable = true;
+                  backup.passwordFile = builtins.storeDir + "/eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee-secret";
+                  backup.repositoryFile = builtins.storeDir + "/ffffffffffffffffffffffffffffffff-repo";
+                  loaders.health = {
+                    script = "/bin/true";
+                    environmentFile = builtins.storeDir + "/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-env";
+                  };
+                };
+              })
+            ];
+          };
+          failed = builtins.filter (a: !a.assertion) evalBad.config.assertions;
+          msgs = nixpkgs.lib.concatMapStringsSep "\n" (a: a.message) failed;
+        in
+        pkgs.runCommand "warehouse-secret-paths" { inherit msgs; } ''
+          printf '%s\n' "$msgs" | grep -F 'Nix store' >/dev/null
+          printf '%s\n' "$msgs" | grep -F 'passwordFile' >/dev/null
+          printf '%s\n' "$msgs" | grep -F 'environmentFile' >/dev/null
+          echo ok > "$out"
+        '';
     };
 }

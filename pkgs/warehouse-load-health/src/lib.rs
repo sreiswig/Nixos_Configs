@@ -5,9 +5,14 @@
 //! `dt` is the America/Chicago calendar date of `recorded_at`.
 
 use std::collections::BTreeMap;
-use std::fs::{self, File};
+use std::fs::{self, File, OpenOptions};
+use std::os::unix::fs::{MetadataExt, OpenOptionsExt};
+use std::os::unix::io::AsRawFd;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+
+/// Linux `O_NOFOLLOW`. Opening the inbox must not follow a symlink.
+const O_NOFOLLOW: i32 = 0o400000;
 
 use arrow_array::{Date32Array, Float64Array, RecordBatch, StringArray, TimestampMicrosecondArray};
 use arrow_schema::{DataType, Field, Schema, TimeUnit};
@@ -288,22 +293,93 @@ fn validate_source_name(source: &str) -> LoadResult<()> {
     }
 }
 
-fn require_sqlite(path: &Path) -> LoadResult<PathBuf> {
-    if !path.is_file() {
+fn lexical_absolute(path: &Path) -> PathBuf {
+    if path.is_absolute() {
+        path.to_path_buf()
+    } else {
+        std::env::current_dir()
+            .unwrap_or_else(|_| PathBuf::from("."))
+            .join(path)
+    }
+}
+
+/// Open a regular inbox file without following a symlink.
+///
+/// `lstat` rejects a symlink or anything that is not a regular file.
+/// `O_NOFOLLOW` repeats that on the open, and `fstat` checks the fd is
+/// still the same inode. The `File` is returned so the caller can read
+/// that fd (via `/proc/self/fd`) instead of opening the path again.
+fn open_inbox_file(path: &Path) -> LoadResult<File> {
+    let listed = match fs::symlink_metadata(path) {
+        Ok(meta) => meta,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+            return Err(LoadError::new(format!(
+                "sqlite file not found: {} (copy personal_groktor's data.db to the inbox path, or set WAREHOUSE_SQLITE_PATH)",
+                path.display()
+            )));
+        }
+        Err(e) => {
+            return Err(LoadError::new(format!("stat {}: {e}", path.display())));
+        }
+    };
+    if listed.file_type().is_symlink() {
         return Err(LoadError::new(format!(
-            "sqlite file not found: {} (copy personal_groktor's data.db to the inbox path, or set WAREHOUSE_SQLITE_PATH)",
+            "refusing to follow symlink {} (inbox entries must be regular files)",
             path.display()
         )));
     }
-    path.canonicalize().map_err(|e| {
-        LoadError::new(format!("canonicalize {}: {e}", path.display()))
-    })
+    if !listed.file_type().is_file() {
+        return Err(LoadError::new(format!(
+            "refusing non-regular file {} (inbox entries must be regular files)",
+            path.display()
+        )));
+    }
+    let file = OpenOptions::new()
+        .read(true)
+        .custom_flags(O_NOFOLLOW)
+        .open(path)
+        .map_err(|e| {
+            LoadError::new(format!(
+                "open {} without following links: {e}",
+                path.display()
+            ))
+        })?;
+    let opened = file.metadata().map_err(|e| {
+        LoadError::new(format!("fstat {}: {e}", path.display()))
+    })?;
+    if opened.file_type().is_symlink() || !opened.file_type().is_file() {
+        return Err(LoadError::new(format!(
+            "refusing {} after open (not a regular file)",
+            path.display()
+        )));
+    }
+    if opened.dev() != listed.dev() || opened.ino() != listed.ino() {
+        return Err(LoadError::new(format!(
+            "refusing {} because the opened file does not match the directory entry",
+            path.display()
+        )));
+    }
+    Ok(file)
+}
+
+fn require_sqlite(path: &Path) -> LoadResult<PathBuf> {
+    let _file = open_inbox_file(path)?;
+    Ok(lexical_absolute(path))
 }
 
 fn read_metrics(path: &Path) -> LoadResult<Vec<MetricRow>> {
-    let conn = Connection::open_with_flags(path, OpenFlags::SQLITE_OPEN_READ_ONLY).map_err(|e| {
+    let file = open_inbox_file(path)?;
+    let fd_path = format!("/proc/self/fd/{}", file.as_raw_fd());
+    let conn = Connection::open_with_flags(&fd_path, OpenFlags::SQLITE_OPEN_READ_ONLY).map_err(|e| {
         LoadError::new(format!("open {} read-only: {e}", path.display()))
     })?;
+    // `file` stays alive for the whole read so the fd path remains valid.
+    let rows = read_metrics_conn(&conn)?;
+    drop(file);
+    Ok(rows)
+}
+
+fn read_metrics_conn(conn: &Connection) -> LoadResult<Vec<MetricRow>> {
     conn.pragma_update(None, "query_only", "ON").map_err(|e| {
         LoadError::new(format!("set query_only: {e}"))
     })?;
@@ -912,6 +988,39 @@ mod tests {
             }
         }
         assert!(saw_watch && saw_slash);
+    }
+
+    #[test]
+    fn refuses_symlinked_sqlite_file() {
+        let tmp = tempfile_dir();
+        let real = fixture(&tmp, &[sample_row()]);
+        let link = tmp.join("inbox.db");
+        std::os::unix::fs::symlink(&real, &link).unwrap();
+        let err = load(&LoadConfig {
+            sqlite_path: link,
+            raw_root: tmp.join("raw"),
+            source: "health".into(),
+        })
+        .unwrap_err();
+        assert!(err.to_string().contains("symlink"), "{err}");
+        assert_eq!(dir_parquet_count(&tmp.join("raw")), 0);
+    }
+
+    #[test]
+    fn refuses_symlinked_directory() {
+        let tmp = tempfile_dir();
+        let dir = tmp.join("real-inbox");
+        fs::create_dir(&dir).unwrap();
+        let link = tmp.join("linked-inbox");
+        std::os::unix::fs::symlink(&dir, &link).unwrap();
+        let err = load(&LoadConfig {
+            sqlite_path: link,
+            raw_root: tmp.join("raw"),
+            source: "health".into(),
+        })
+        .unwrap_err();
+        assert!(err.to_string().contains("symlink"), "{err}");
+        assert_eq!(dir_parquet_count(&tmp.join("raw")), 0);
     }
 
     #[test]

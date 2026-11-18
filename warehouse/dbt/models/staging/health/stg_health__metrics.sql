@@ -26,14 +26,19 @@ casted as (
         cast(source_day as date) as source_day,
         cast(dt as date) as dt,
         cast(value as double) as value_raw,
-        case lower(trim(cast(unit as varchar)))
+        case
+            -- Cal is kilocalories. Lowercase cal is not this alias.
+            when trim(cast(unit as varchar)) = 'Cal' then 'kcal'
+            else case lower(trim(cast(unit as varchar)))
             when 'percent' then '%'
             when 'pct' then '%'
+            when 'percentage' then '%'
             when '%' then '%'
             when 'hrs' then 'hours'
             when 'hr' then 'hours'
             when 'hour' then 'hours'
             when 'hours' then 'hours'
+            when 'h' then 'hours'
             when 'minutes' then 'min'
             when 'minute' then 'min'
             when 'mins' then 'min'
@@ -46,6 +51,7 @@ casted as (
             when 'seconds' then 's'
             when 'beats per minute' then 'bpm'
             when 'beats/minute' then 'bpm'
+            when 'beats/min' then 'bpm'
             when 'bpm' then 'bpm'
             when 'meter' then 'm'
             when 'meters' then 'm'
@@ -59,8 +65,10 @@ casted as (
             when 'km' then 'km'
             when 'mile' then 'mile'
             when 'miles' then 'mile'
+            when 'mi' then 'mile'
             when 'kilocalorie' then 'kcal'
             when 'kilocalories' then 'kcal'
+            when 'kcals' then 'kcal'
             when 'kcal' then 'kcal'
             when 'kilojoule' then 'kj'
             when 'kilojoules' then 'kj'
@@ -70,6 +78,7 @@ casted as (
             when 'g' then 'g'
             when 'kilogram' then 'kg'
             when 'kilograms' then 'kg'
+            when 'kgs' then 'kg'
             when 'kg' then 'kg'
             when 'pound' then 'lb'
             when 'pounds' then 'lb'
@@ -77,8 +86,10 @@ casted as (
             when 'lb' then 'lb'
             when 'millisecond' then 'ms'
             when 'milliseconds' then 'ms'
+            when 'msec' then 'ms'
             when 'ms' then 'ms'
             else lower(trim(cast(unit as varchar)))
+            end
         end as unit_norm,
         cast(source as varchar) as source,
         cast(raw_name as varchar) as raw_name,

@@ -107,7 +107,9 @@ sudo systemctl start warehouse-load-health.service
 - `sum` for additive kinds (`steps`, `active_calories_kcal`, `exercise_minutes`, plus distance, floors, and sleep durations)
 - `latest` for point-in-time kinds (resting heart rate, HRV, heart rate, weight, percentages, scores). `value`, `unit`, and `_loaded_at` come from one row: latest `recorded_at`, then latest `_loaded_at`, then `metric_id`. `value_avg`, `value_min`, and `value_max` are stored for every kind.
 
-A test fails the build when a staged kind has no seed row, and when a kind from the `accepted_values` list has no seed row. Staging renames unit aliases and converts the value into the kind's canonical unit when the factor is known: time (`s`, `min`, `hours`), length (`m`, `km`, `mile`), energy (`kJ` to `kcal`), and mass (`g`, `kg`, `lb`). `beats per minute` becomes `bpm`. Anything else stays as written, and an error-severity test fails the build when a row's unit still differs from the seed, so it is not summed into `fct_health_daily` unnoticed. A second test fails when one `source_day` and kind still has more than one unit. `accepted_values` on `kind` and `unit` is severity `warn` until an Amazfit or Zepp parser lands. There is no `unknown` unit.
+A test fails the build when a staged kind has no seed row, and when a kind from the `accepted_values` list has no seed row. Staging renames unit aliases and converts the value into the kind's canonical unit when the factor is known: time (`s`, `min`, `hours`, alias `h`), length (`m`, `km`, `mile`, alias `mi`), energy (`kJ` to `kcal`, aliases `kcals` and capital `Cal`), and mass (`g`, `kg`, alias `kgs`, `lb`). `beats per minute`, `beats/minute`, and `beats/min` become `bpm`. `msec` becomes `ms`. `percent`, `pct`, and `percentage` become `%`. Lowercase `cal` is not an alias. Anything else stays as written, and an error-severity test fails the build when a row's unit still differs from the seed, so it is not summed into `fct_health_daily` unnoticed. `dim_metric_kind` keeps only rows whose unit is that canonical unit, and `assert_dim_metric_kind_unit` fails the build if a mismatched unit is stored on the dimension. A second test fails when one `source_day` and kind still has more than one unit. `accepted_values` on `kind` and `unit` is severity `warn` until an Amazfit or Zepp parser lands. There is no `unknown` unit.
+
+Percent kinds (`canonical_unit` `%`, including `body_fat_pct`, `sleep_efficiency_pct`, and `spo2_pct`) must be on a 0 to 100 scale. A value labeled `%` (after alias rename) has to be greater than 1 and at most 100. A fraction such as `0.2` labeled `%` fails `assert_stg_health_percent_scale`. The build does not multiply that fraction by 100.
 
 Other tests: `unique` and `not_null` on keys, `accepted_values` on `category`, `relationships` from the fact to the dimension, and a singular test that `local_date` equals the hive `dt`. Source `health.metrics` has freshness on `_loaded_at` (warn after 36 hours, error after 72). `warehouse-dbt.service` runs `dbt build` and then `dbt source freshness` when at least one Parquet file exists. `ExecCondition` exits 1 otherwise. Exit codes 1 through 254 skip the unit and leave it inactive. Exit 255 would mark it failed, so the guard does not use 255. An empty loader run (zero files) still has `OnSuccess`, and that condition skips dbt.
 
@@ -186,14 +188,14 @@ When Sam turns it on, `services.restic.backups.warehouse` backs up:
 | Setting | Value |
 |---------|--------|
 | Repository file | `/etc/restic/warehouse-repo` (root, mode `0400`) |
-| Password file | `/etc/restic/warehouse-password` (root, mode `0400`, create this yourself) |
+| Password file | `/etc/restic/warehouse-password` (root, mode `0400` or `0600`, create this yourself) |
 | `initialize` | `false` (a wrong target fails instead of creating a repo) |
 | Keep | 7 daily, 4 weekly, 6 monthly |
 | Check | monthly, only after `backup.enable = true` |
 
 The placeholder file is created only when `backup.enable` is true, and only if `/etc/restic/warehouse-repo` is absent. tmpfiles writes the single line `PLACEHOLDER` and does not overwrite a file that is already there. Replace that line with the restic URL on the host. Create the password file on the host. Neither file belongs in git. With `backup.enable` left false, that path is not created.
 
-Turning `backup.enable` on still installs the restic timer. `restic-backups-warehouse` and `warehouse-restic-check` skip (`ExecCondition` exit 1, unit stays inactive) while the repository file is missing, empty, or still `PLACEHOLDER`, or while the password file is missing or empty. Exit 255 is not used. After you replace the placeholder and create the password file, the next timer run performs the backup.
+Turning `backup.enable` on still installs the restic timer. `restic-backups-warehouse` and `warehouse-restic-check` skip (`ExecCondition` exit 1, unit stays inactive) while the repository file is missing, empty, or whitespace-only, while the whole file is a quoted value (`""`, `'PLACEHOLDER'`, `"placeholder"`), or while the trimmed text is `PLACEHOLDER` or `TODO` in any case. A real repository string still passes that check. The same skip applies when the password file is missing or empty. Exit 255 is not used. Once the repository file is a real URL, `ExecStartPre` refuses to run unless the password file is owned by root and its mode is `0400` or `0600`. A wrong owner or mode `0644` fails that guard with a message and does not start restic. After you replace the placeholder and create the password file with those permissions, the next timer run performs the backup.
 
 ```bash
 sudo install -m 0400 /dev/null /etc/restic/warehouse-password
@@ -265,7 +267,7 @@ AI_Dispatch Postgres tables `token_usage` and `ai_requests`, via a read-only rol
 
 1. Health SQLite arrival: pull `data.db` from the laptop over Tailscale into `/var/lib/warehouse/inbox/health/data.db`, or run personal_groktor on AIServer?
 2. Portfolio intake: manual Fidelity CSV dropped in an inbox, or something else? Account numbers get masked to the last 4 in staging when that loader exists.
-3. Restic off-box target, and where the repo key lives. A second disk is the free option. The repo file path is `/etc/restic/warehouse-repo`. tmpfiles writes `PLACEHOLDER` there only after `backup.enable = true`, and only if the file is absent. The password file is `/etc/restic/warehouse-password` (you create it, mode `0400`).
+3. Restic off-box target, and where the repo key lives. A second disk is the free option. The repo file path is `/etc/restic/warehouse-repo`. tmpfiles writes `PLACEHOLDER` there only after `backup.enable = true`, and only if the file is absent. The password file is `/etc/restic/warehouse-password` (you create it, root, mode `0400` or `0600`). Do not point either path at a Nix store path.
 4. Raw Parquet retention: keep forever, or prune after N years? Backups, once enabled, keep 7 daily / 4 weekly / 6 monthly. Say if that keep policy should change.
 5. One `warehouse.duckdb` for health and later portfolio, or a separate file for health before portfolio lands? This module uses one file.
 6. Should `dbt docs` or a query UI be reachable on the tailnet? If yes, loopback plus a Caddy vhost. 8000, 8080, and 8081 are taken.
