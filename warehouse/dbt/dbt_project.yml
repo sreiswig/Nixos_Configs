@@ -1,0 +1,29 @@
+name: warehouse
+version: "1.0.0"
+config-version: 2
+profile: warehouse
+
+model-paths: ["models"]
+analysis-paths: ["analyses"]
+test-paths: ["tests"]
+seed-paths: ["seeds"]
+macro-paths: ["macros"]
+snapshot-paths: ["snapshots"]
+target-path: "target"
+clean-targets:
+  - "target"
+  - "dbt_packages"
+  - "logs"
+
+vars:
+  local_tz: "America/Chicago"
+
+models:
+  warehouse:
+    staging:
+      +materialized: view
+      +schema: health
+    marts:
+      +materialized: table
+      health:
+        +schema: health

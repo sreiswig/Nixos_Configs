@@ -7,3 +7,4 @@ It's split by host, trying out flakes
 
 - [Homelab inventory](docs/inventory.md) — hosts, roles, MagicDNS (incl. Spark/Windows)
 - [Hardware inventory convention](docs/hardware-inventory.md) — how we record exact hardware
+- [Personal warehouse](docs/warehouse.md): Parquet + DuckDB on AIServer (Tailscale SSH, no public listener)

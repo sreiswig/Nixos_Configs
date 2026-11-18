@@ -1,0 +1,54 @@
+version: 2
+
+models:
+  - name: stg_health__metrics
+    description: >
+      One row per personal_groktor metrics.id. Reruns keep the row from the
+      latest _loaded_at. local_date is recorded_at in America/Chicago.
+    columns:
+      - name: metric_id
+        tests:
+          - not_null
+          - unique
+      - name: kind
+        tests:
+          - not_null
+          - accepted_values:
+              values:
+                - sleep_duration_hours
+                - sleep_efficiency_pct
+                - resting_heart_rate_bpm
+                - heart_rate_variability_ms
+                - steps
+                - active_calories_kcal
+                - exercise_minutes
+                - weight_kg
+                - body_fat_pct
+                - readiness_score
+                - spo2_pct
+      - name: category
+        tests:
+          - not_null
+          - accepted_values:
+              values: ["sleep", "heart", "activity", "body", "recovery", "other"]
+      - name: recorded_at
+        tests: [not_null]
+      - name: source_day
+        tests: [not_null]
+      - name: local_date
+        tests: [not_null]
+      - name: dt
+        tests: [not_null]
+      - name: value
+        tests: [not_null]
+      - name: unit
+        tests:
+          - not_null
+          - accepted_values:
+              values: ["hours", "%", "bpm", "ms", "count", "kcal", "min", "kg", "score", "unknown"]
+      - name: source
+        tests: [not_null]
+      - name: _loaded_at
+        tests: [not_null]
+      - name: _run_id
+        tests: [not_null]

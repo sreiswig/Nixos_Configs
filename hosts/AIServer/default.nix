@@ -18,6 +18,7 @@ in {
     ../../modules/services/ai-dispatch-caddy.nix
     ../../modules/services/network-self-heal.nix
     ../../modules/services/incus-host.nix
+    ../../modules/services/data-warehouse.nix
     # ../../modules/services/authentik.nix
 
     # Local Configuration
@@ -363,6 +364,19 @@ in {
   # (https://dispatch.tail93ec7d.ts.net/api) — do not open :8000 on LAN ethernet.
   # trustedInterfaces: tailscale0 is the trusted path until Dispatch has real auth.
   networking.firewall.trustedInterfaces = [ "tailscale0" ];
+
+  # Personal warehouse. No listener and no firewall holes. Query over SSH
+  # on the tailnet: duckdb -readonly /var/lib/warehouse/warehouse.duckdb
+  # Backup stays off until /etc/restic/warehouse-repo is a real target.
+  # See docs/warehouse.md.
+  services.dataWarehouse = {
+    enable = true;
+    loaders.health = {
+      script = lib.getExe pkgs.warehouse-load-health;
+      onCalendar = "*-*-* 02:15:00";
+    };
+    dbt.onCalendar = "*-*-* 02:45:00";
+  };
 
   users.users.sam.packages = with pkgs; [
     gnome-disk-utility

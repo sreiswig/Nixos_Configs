@@ -29,6 +29,7 @@
               nixpkgs.overlays = [
                 (final: prev: {
                   grok-bot = final.callPackage ./pkgs/grok-bot { };
+                  warehouse-load-health = final.callPackage ./pkgs/warehouse-load-health { };
                 })
               ];
             }

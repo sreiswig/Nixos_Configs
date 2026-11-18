@@ -1,0 +1,41 @@
+version: 2
+
+sources:
+  - name: health
+    description: Append-only Parquet from warehouse-load-health.
+    tables:
+      - name: metrics
+        description: >
+          personal_groktor SQLite metrics table. Each loader run adds
+          raw/health/dt=YYYY-MM-DD/<run_id>.parquet and does not rewrite
+          older files. dt is the America/Chicago date of recorded_at.
+        loaded_at_field: _loaded_at
+        freshness:
+          warn_after: {count: 36, period: hour}
+          error_after: {count: 72, period: hour}
+        config:
+          external_location: "read_parquet('{{ env_var('WAREHOUSE_RAW_HEALTH_GLOB', '/var/lib/warehouse/raw/health/**/*.parquet') }}', hive_partitioning=true)"
+        columns:
+          - name: id
+            description: personal_groktor metrics.id (UUID text).
+          - name: kind
+            description: Canonical metric name from personal_groktor.
+          - name: category
+            description: sleep, heart, activity, body, recovery, or other.
+          - name: recorded_at
+            description: UTC instant stored by personal_groktor as RFC3339.
+          - name: source_day
+            description: Calendar day column from SQLite (metrics.day).
+          - name: value
+          - name: unit
+          - name: source
+            description: Device or import label, for example gadgetbridge:amazfit.
+          - name: raw_name
+          - name: notes
+          - name: _loaded_at
+            description: UTC time the loader wrote this run.
+          - name: _run_id
+          - name: _source_file
+          - name: _loader_version
+          - name: dt
+            description: Hive partition date (America/Chicago date of recorded_at).
