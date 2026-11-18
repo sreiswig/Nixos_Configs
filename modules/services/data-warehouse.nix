@@ -161,8 +161,9 @@ let
         Type = "oneshot";
         User = "warehouse";
         Group = "warehouse";
-        # Private directory for the loader's SQLite snapshot. The process
-        # reads RUNTIME_DIRECTORY and copies the verified inbox fd there.
+        # Private directory for the SQLite backup snapshot. Removed by
+        # systemd when the unit stops, including after SIGKILL.
+        # RuntimeDirectoryPreserve is left unset on purpose.
         RuntimeDirectory = "warehouse-load-${name}";
         RuntimeDirectoryMode = "0700";
         # Rust loader. Leave this off the Python dbt unit.
@@ -339,7 +340,9 @@ in
       warehousePython
     ];
 
-    # Layout. inbox/health is group-writable so sam can drop data.db.
+    # Layout. inbox/health is group-writable so sam can drop data.db and
+    # so the loader can create or update data.db-shm for a WAL read.
+    # immutable=1 is not used: it would ignore data.db-wal.
     # raw/ stays 0750. UMask=0027 on the units makes new files 0640.
     systemd.tmpfiles.rules = [
       "d ${cfg.dataDir} 0750 warehouse warehouse - -"
