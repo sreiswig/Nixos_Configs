@@ -9,13 +9,9 @@ with lib;
 let
   cfg = config.services.dataWarehouse;
 
-  # Same nixpkgs as pkgs.duckdb. dbt-duckdb is optional until nixpkgs has it;
-  # see the warning below. Do not vendor a second DuckDB.
-  dbtDuckdbAvailable = pkgs.python3Packages ? "dbt-duckdb";
-  warehousePython = pkgs.python3.withPackages (ps:
-    [ ps.duckdb ]
-    ++ lib.optional (ps ? "dbt-duckdb") ps."dbt-duckdb"
-  );
+  # See the overlay in flake.nix: Python 3.13 plus dbt-duckdb 1.11.1
+  # against this nixpkgs' dbt-core and duckdb.
+  warehousePython = pkgs.warehouse-python;
 
   stateDirectory =
     if hasPrefix "/var/lib/" cfg.dataDir
@@ -50,12 +46,49 @@ let
     PrivateTmp = true;
     NoNewPrivileges = true;
     CapabilityBoundingSet = [ "" ];
-    RestrictAddressFamilies = [ "AF_UNIX" "AF_INET" "AF_INET6" ];
     SystemCallFilter = [ "@system-service" ];
     UMask = "0027";
     TimeoutStartSec = "30min";
     ReadWritePaths = [ cfg.dataDir ];
+    PrivateDevices = true;
+    ProtectKernelTunables = true;
+    ProtectKernelModules = true;
+    ProtectKernelLogs = true;
+    ProtectControlGroups = true;
+    ProtectClock = true;
+    ProtectHostname = true;
+    ProtectProc = "invisible";
+    RestrictNamespaces = true;
+    RestrictSUIDSGID = true;
+    LockPersonality = true;
+    RestrictRealtime = true;
+    SystemCallArchitectures = "native";
   };
+
+  # Local readers and the dbt unit. A loader sets network = true to opt in.
+  offlineNet = {
+    PrivateNetwork = true;
+    RestrictAddressFamilies = [ "AF_UNIX" ];
+  };
+
+  onlineNet = {
+    RestrictAddressFamilies = [ "AF_UNIX" "AF_INET" "AF_INET6" ];
+  };
+
+  # Exit 255 tells systemd the condition missed: the unit is skipped, not failed.
+  dbtHasRawParquet = pkgs.writeShellScript "warehouse-dbt-has-parquet" ''
+    set -eu
+    raw="${cfg.dataDir}/raw"
+    if [ ! -d "$raw" ]; then
+      echo "warehouse-dbt: $raw is missing; skipping"
+      exit 255
+    fi
+    if ! ${pkgs.findutils}/bin/find "$raw" -type f -name '*.parquet' -print -quit \
+      | ${pkgs.gnugrep}/bin/grep -q .; then
+      echo "warehouse-dbt: no parquet under raw/; skipping build"
+      exit 255
+    fi
+  '';
 
   stateDirConfig = optionalAttrs (stateDirectory != null) {
     StateDirectory = stateDirectory;
@@ -73,10 +106,12 @@ let
         WAREHOUSE_DATA_DIR = cfg.dataDir;
         HOME = "${cfg.dataDir}/home";
       } // loader.environment;
-      serviceConfig = hardened // stateDirConfig // {
+      serviceConfig = hardened // stateDirConfig // (if loader.network then onlineNet else offlineNet) // {
         Type = "oneshot";
         User = "warehouse";
         Group = "warehouse";
+        # Rust loader. Leave this off the Python dbt unit.
+        MemoryDenyWriteExecute = true;
       } // optionalAttrs (loader.environmentFile != null) {
         EnvironmentFile = loader.environmentFile;
       };
@@ -150,6 +185,17 @@ in
               keys it defines.
             '';
           };
+
+          network = mkOption {
+            type = types.bool;
+            default = false;
+            description = ''
+              Allow this loader to open network sockets. Default is off:
+              PrivateNetwork and RestrictAddressFamilies=AF_UNIX.
+              Set true for a loader that fetches, such as a future
+              AI_Dispatch Postgres reader.
+            '';
+          };
         };
       });
       default = { };
@@ -180,7 +226,8 @@ in
         default = "/etc/restic/warehouse-repo";
         description = ''
           Root-owned mode 0400 file whose contents are the restic repository
-          URL. The module creates it with the text PLACEHOLDER when missing.
+          URL. When backup.enable is true, tmpfiles creates this file with
+          the text PLACEHOLDER if it is absent, and does not overwrite it.
           Replace that text on the host. The file is not read from the Nix store.
         '';
       };
@@ -197,15 +244,6 @@ in
   };
 
   config = mkIf cfg.enable {
-    warnings = optional (!dbtDuckdbAvailable) ''
-      services.dataWarehouse: python3Packages.dbt-duckdb is not in this nixpkgs
-      (python3Packages.dbt-core and python3Packages.duckdb are).
-      warehouse-dbt.service will exit until dbt-duckdb is packaged against those
-      two attributes so the DuckDB file format matches pkgs.duckdb.
-      Smallest fix: add pkgs/development/python-modules/dbt-duckdb
-      (buildPythonPackage, same version line as dbt-core). Do not vendor DuckDB.
-    '';
-
     assertions = mapAttrsToList (name: _: {
       assertion = builtins.match "[a-z][a-z0-9_-]*" name != null;
       message = "services.dataWarehouse.loaders.${name} must match [a-z][a-z0-9_-]*";
@@ -238,6 +276,7 @@ in
       "d ${cfg.dataDir}/home 0750 warehouse warehouse - -"
       "d ${cfg.dataDir}/export 0750 warehouse warehouse - -"
       "d /etc/warehouse 0750 root root - -"
+    ] ++ optionals cfg.backup.enable [
       "d /etc/restic 0750 root root - -"
       "f ${cfg.backup.repositoryFile} 0400 root root - PLACEHOLDER"
     ];
@@ -260,11 +299,14 @@ in
           HOME = "${cfg.dataDir}/home";
           XDG_CACHE_HOME = "${cfg.dataDir}/home/cache";
           WAREHOUSE_RAW_HEALTH_GLOB = "${cfg.dataDir}/raw/health/**/*.parquet";
+          DBT_SEND_ANONYMOUS_USAGE_STATS = "false";
+          DO_NOT_TRACK = "1";
         };
-        serviceConfig = hardened // stateDirConfig // {
+        serviceConfig = hardened // stateDirConfig // offlineNet // {
           Type = "oneshot";
           User = "warehouse";
           Group = "warehouse";
+          ExecCondition = dbtHasRawParquet;
         };
         script = ''
           set -eu
@@ -275,12 +317,6 @@ in
           mkdir -p "$data/dbt/project"
           cp -a ${dbtProject}/. "$data/dbt/project/"
           install -m 0640 ${profilesFile} "$data/dbt/profiles.yml"
-          if ! command -v dbt >/dev/null 2>&1; then
-            echo "warehouse-dbt: dbt is not on PATH." >&2
-            echo "python3Packages.dbt-duckdb is missing from this nixpkgs." >&2
-            echo "Package it against the existing dbt-core and python3Packages.duckdb." >&2
-            exit 1
-          fi
           export WAREHOUSE_DBT_PROJECT="$data/dbt/project"
           export WAREHOUSE_DBT_PROFILES="$data/dbt"
           export WAREHOUSE_DBT_TARGET="$data/dbt/target"
@@ -312,9 +348,10 @@ in
         description = "Monthly restic check of the warehouse repository";
         after = [ "network-online.target" ];
         wants = [ "network-online.target" ];
-        serviceConfig = {
+        serviceConfig = hardened // onlineNet // {
           Type = "oneshot";
           User = "root";
+          CacheDirectory = "restic-backups-warehouse";
           ExecStart = "${lib.getExe pkgs.restic} check";
           Environment = [
             "RESTIC_PASSWORD_FILE=${cfg.backup.passwordFile}"
@@ -364,6 +401,8 @@ in
           "${cfg.dataDir}/dbt/project/dbt_packages"
           "${cfg.dataDir}/warehouse.duckdb"
           "${cfg.dataDir}/warehouse.duckdb.*"
+          # Loader publishes via .<run_id>.parquet.partial, then rename.
+          "${cfg.dataDir}/raw/**/.*.partial"
         ];
         timerConfig = {
           OnCalendar = "03:30";

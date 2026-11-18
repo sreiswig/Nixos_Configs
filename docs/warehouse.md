@@ -32,7 +32,7 @@ State directory: `/var/lib/warehouse` (`services.dataWarehouse.dataDir`).
 
 `sam` is in group `warehouse`, so `sam` can read the data dir and write the inbox. Raw files stay immutable: the loader never rewrites or deletes an existing Parquet file. A second run writes a new `<run_id>.parquet` under the same `dt=` directory. Staging dedupes.
 
-`dt` is the America/Chicago calendar date of `recorded_at` (the host timezone in `modules/common`). The SQLite `day` column is kept as `source_day` and can differ when the UTC instant falls on the previous Chicago date.
+`dt` is the America/Chicago calendar date of `recorded_at` (the host timezone in `modules/common`). The daily fact buckets on groktor's `metrics.day`, stored as `source_day`. `local_date` stays on the row. Overnight sleep can make `source_day` and `local_date` disagree in either direction (the Chicago date of `recorded_at` can fall on the day before or the day after groktor's `day`). A warn-severity test flags those rows.
 
 Every raw row carries `_loaded_at` (UTC, one value per run), `_run_id`, `_source_file` (canonical SQLite path), and `_loader_version`.
 
@@ -99,12 +99,17 @@ sudo systemctl start warehouse-load-health.service
 | Model | Materialization | Grain |
 |-------|-----------------|--------|
 | `stg_health__metrics` | view in schema `health` | one row per `metrics.id`, latest `_loaded_at` |
-| `fct_health_daily` | table in schema `health` | one row per `local_date` and `kind` |
+| `fct_health_daily` | table in schema `health` | one row per `source_day` and `kind` |
 | `dim_metric_kind` | table in schema `health` | one row per `kind` |
 
-Tests on the models: `unique` and `not_null` on keys, `accepted_values` on `kind`, `category`, and `unit` (the lists from personal_groktor's `MetricKind` and `default_unit`), `relationships` from the fact to the dimension, and a singular test that `local_date` equals the hive `dt`. Source `health.metrics` has freshness on `_loaded_at` (warn after 36 hours, error after 72). `warehouse-dbt.service` runs `dbt build` and then `dbt source freshness`.
+`fct_health_daily` does not keep a single latest row for every kind. groktor inserts with `INSERT OR IGNORE` on the UUID, so samples during a day and re-ingests are separate rows after dedupe on `id`. The seed `health_kind_agg` maps each kind to a rule:
 
-`fct_health_daily` keeps the latest `recorded_at` when several sources share a day and a kind.
+- `sum` for additive kinds (`steps`, `active_calories_kcal`, `exercise_minutes`, plus distance, floors, and sleep durations)
+- `latest` for point-in-time kinds (resting heart rate, HRV, heart rate, weight, percentages, scores). `value` is the sample with the latest `recorded_at`. `value_avg`, `value_min`, and `value_max` are stored for every kind.
+
+A test fails the build when a staged kind has no seed row. Staging folds unit aliases (`percent` to `%`, `hrs` to `hours`, `minutes` to `min`, `steps` to `count`, `sec` to `s`). `accepted_values` on `kind` and `unit` is severity `warn` until an Amazfit or Zepp parser lands. There is no `unknown` unit.
+
+Other tests: `unique` and `not_null` on keys, `accepted_values` on `category`, `relationships` from the fact to the dimension, and a singular test that `local_date` equals the hive `dt`. Source `health.metrics` has freshness on `_loaded_at` (warn after 36 hours, error after 72). `warehouse-dbt.service` runs `dbt build` and then `dbt source freshness` when at least one Parquet file exists. `ExecCondition` exits 255 otherwise, and systemd skips the unit instead of marking it failed. An empty loader run (zero files) still has `OnSuccess`, and that condition skips dbt.
 
 ## Schedules
 
@@ -136,7 +141,7 @@ services.dataWarehouse.loaders.<name> = {
 4. Add a staging view `stg_<source>__<entity>` (rename, cast, dedupe on the natural key, keep the latest `_loaded_at`), then `int_<topic>` for joins and `fct_<event>` / `dim_<thing>` marts. Put the DuckDB schema on the domain (`health`, `portfolio`, or `ops`).
 5. Add `unique` and `not_null` on keys, `accepted_values` on kinds and units, and source freshness on `_loaded_at`.
 
-The loader unit template is `warehouse-load-<name>.service`: user `warehouse`, `ProtectSystem=strict`, `ReadWritePaths` limited to the data dir, `ProtectHome`, `PrivateTmp`, `NoNewPrivileges`, empty `CapabilityBoundingSet`, `UMask=0027`. Fetching loaders may use the network. The health loader reads a local file.
+The loader unit template is `warehouse-load-<name>.service`: user `warehouse`, `ProtectSystem=strict`, `ReadWritePaths` limited to the data dir, `ProtectHome`, `PrivateTmp`, `NoNewPrivileges`, empty `CapabilityBoundingSet`, `UMask=0027`, `MemoryDenyWriteExecute`. Network is off unless the loader sets `network = true` (`PrivateNetwork` and `RestrictAddressFamilies=AF_UNIX` otherwise). The health loader reads a local file and leaves `network` at the default. A future AI_Dispatch Postgres loader would set `network = true`.
 
 ## Query over Tailscale
 
@@ -152,7 +157,7 @@ order by local_date desc
 limit 20;
 ```
 
-`duckdb -readonly` does not take the write lock. A build can still replace the file when it finishes, so rerun the query if DuckDB reports the file changed.
+A `duckdb -readonly` session fails while `warehouse-dbt.service` holds `/var/lib/warehouse/.write.lock`. That window is the 02:45 timer, usually finished by 03:00, plus the short run that starts when the 02:15 loader succeeds. Retry after the unit exits.
 
 Raw files, before dbt has built:
 
@@ -173,7 +178,7 @@ A future UI or `dbt docs` site would bind `127.0.0.1` on a free port and sit beh
 
 When Sam turns it on, `services.restic.backups.warehouse` backs up:
 
-- `/var/lib/warehouse/raw`
+- `/var/lib/warehouse/raw` (in-progress `.<run_id>.parquet.partial` files excluded)
 - `/var/lib/warehouse/dbt` (dbt `target/`, logs, and `dbt_packages` excluded)
 
 `warehouse.duckdb` is left out. Rebuild it with `dbt build` after a restore. The NixOS restic module would run `checkOpts` on the same daily timer, so the monthly `restic check` is a separate unit, `warehouse-restic-check.service`.
@@ -186,7 +191,7 @@ When Sam turns it on, `services.restic.backups.warehouse` backs up:
 | Keep | 7 daily, 4 weekly, 6 monthly |
 | Check | monthly, only after `backup.enable = true` |
 
-The module creates the repository file with the single line `PLACEHOLDER` if the file is absent, and it will not overwrite a file that is already there. Replace that line with the restic URL on the host. Create the password file on the host. Neither file belongs in git.
+The placeholder file is created only when `backup.enable` is true, and only if `/etc/restic/warehouse-repo` is absent. tmpfiles writes the single line `PLACEHOLDER` and does not overwrite a file that is already there. Replace that line with the restic URL on the host. Create the password file on the host. Neither file belongs in git. With `backup.enable` left false, that path is not created.
 
 ```bash
 sudo install -m 0400 /dev/null /etc/restic/warehouse-password
@@ -204,13 +209,13 @@ EXPORT DATABASE '/var/lib/warehouse/export' (FORMAT parquet);
 
 Postgres is a later step, and only if several writers need to run at once. Today one flock covers the single DuckDB writer. This module does not install a warehouse database server. (AIServer already runs Postgres for Attic. That cluster is separate.)
 
-## dbt-duckdb on this nixpkgs
+## dbt-duckdb
 
-Pinned nixpkgs (`flake.lock`, `34ab99075ac4f7e40cf037eef32cb1c360bb85e9`) has `pkgs.duckdb`, `python3Packages.duckdb`, and `python3Packages.dbt-core` 1.11.2. It has no `python3Packages.dbt-duckdb` (adapters present include postgres, bigquery, snowflake, redshift).
+`pkgs/dbt-duckdb` is `dbt-duckdb` 1.11.1 from the PyPI sdist, built with `python313.pkgs.buildPythonPackage` against this nixpkgs' `dbt-core` 1.11.2 and `duckdb` 1.5.5. `python313Packages.duckdb` is built from `pkgs.duckdb` 1.5.5, so the CLI and dbt share one DuckDB. The adapter's own requirement is `duckdb>=1.0.0` and `dbt-core>=1.8.0`. Its `md` extra pins `duckdb==1.5.5`, the same version already in the pin. The module does not install a second DuckDB.
 
-The module installs `python3.withPackages` with `duckdb`, and adds `dbt-duckdb` when the attribute exists. Until then `warehouse-dbt.service` exits with a message and the loader can still write Parquet.
+The default `python3` in this pin is 3.14. `dbt-semantic-interfaces`, which `dbt-core` depends on, is disabled on 3.14 because it uses pydantic v1. The warehouse Python environment is Python 3.13, the newest interpreter here that can build that stack. `dbt-common` in this pin requires `pathspec<1.1` while the set has pathspec 1.1.1, so the overlay relaxes that one bound on the existing `dbt-common` package.
 
-Smallest fix: add `pkgs/development/python-modules/dbt-duckdb` as a `buildPythonPackage` on the same version line as `dbt-core` 1.11.2, depending on the existing `dbt-core` and `python3Packages.duckdb` (that Python package is built from `pkgs.duckdb`). That keeps one DuckDB file format for the CLI and for dbt. Do not vendor a second DuckDB.
+`warehouse-dbt.service` sets `DBT_SEND_ANONYMOUS_USAGE_STATS=false` and `DO_NOT_TRACK=1`, and it runs with `PrivateNetwork=true` and `RestrictAddressFamilies=AF_UNIX`. The health loader uses the same network sandbox.
 
 ## After `nh os switch`
 
@@ -219,15 +224,17 @@ systemctl list-timers 'warehouse-*'
 systemctl list-timers 'restic-backups-warehouse*'
 ss -tlnp | awk 'NR==1 || /LISTEN/'
 ls -ld /var/lib/warehouse /var/lib/warehouse/raw /var/lib/warehouse/inbox/health
+systemd-analyze security warehouse-dbt
+systemd-analyze security warehouse-load-health
 ```
 
-Expect the health and dbt timers. Expect no restic timer while `backup.enable` is false. `ss` should show the same listeners as before this module (no new warehouse port). `ls` should show `drwxr-x---` for the data dir and `drwxrws---` for `inbox/health`.
+Expect the health and dbt timers. Expect no restic timer while `backup.enable` is false. `ss` should show the same listeners as before this module (no new warehouse port). `ls` should show `drwxr-x---` for the data dir and `drwxrws---` for `inbox/health`. `systemd-analyze security` is the sandbox report for the dbt unit and the health loader.
 
-Until `/var/lib/warehouse/inbox/health/data.db` exists, `warehouse-load-health.service` fails on purpose. Until `dbt-duckdb` is packaged, `warehouse-dbt.service` fails on purpose.
+Until `/var/lib/warehouse/inbox/health/data.db` exists, `warehouse-load-health.service` fails on purpose. With no Parquet under `raw/`, `warehouse-dbt.service` is skipped (`ExecCondition` exit 255) and is not a failed unit.
 
 ## Rollback
 
-Set `services.dataWarehouse.enable = false` and switch, or boot the previous NixOS generation. `/var/lib/warehouse` stays on disk either way. Turning the module off stops the timers and leaves the user, group, and files in place.
+Set `services.dataWarehouse.enable = false` and switch, or boot the previous NixOS generation. Either way `/var/lib/warehouse` persists. Turning the module off stops the timers and leaves the user, group, and files in place.
 
 ## Next sources (documented only)
 
@@ -247,12 +254,13 @@ AI_Dispatch Postgres tables `token_usage` and `ai_requests`, via a read-only rol
 
 1. Health SQLite arrival: pull `data.db` from the laptop over Tailscale into `/var/lib/warehouse/inbox/health/data.db`, or run personal_groktor on AIServer?
 2. Portfolio intake: manual Fidelity CSV dropped in an inbox, or something else? Account numbers get masked to the last 4 in staging when that loader exists.
-3. Restic off-box target, and where the repo key lives. A second disk is the free option. The repo file is `/etc/restic/warehouse-repo` (currently the placeholder). The password file is `/etc/restic/warehouse-password` (you create it, mode `0400`).
+3. Restic off-box target, and where the repo key lives. A second disk is the free option. The repo file path is `/etc/restic/warehouse-repo`. tmpfiles writes `PLACEHOLDER` there only after `backup.enable = true`, and only if the file is absent. The password file is `/etc/restic/warehouse-password` (you create it, mode `0400`).
 4. Raw Parquet retention: keep forever, or prune after N years? Backups, once enabled, keep 7 daily / 4 weekly / 6 monthly. Say if that keep policy should change.
 5. One `warehouse.duckdb` for health and later portfolio, or a separate file for health before portfolio lands? This module uses one file.
 6. Should `dbt docs` or a query UI be reachable on the tailnet? If yes, loopback plus a Caddy vhost. 8000, 8080, and 8081 are taken.
 7. Confirm the timer clocks (loader 02:15, dbt 02:45, restic 03:30, restic check monthly).
 8. AIServer is the host (`hosts/AIServer`). Say if the warehouse should live somewhere else.
-9. `accepted_values` for `kind` and `unit` follow personal_groktor's canonical list. An Amazfit row whose kind falls through to `MetricKind::Other` will fail `dbt build` until the list grows. Is that the list you want?
+9. `accepted_values` for `kind` and `unit` warn until a device parser lands. A kind with no `health_kind_agg` row still fails `dbt build`. Are the seed rules and the warn lists what you want once Amazfit names show up?
 10. Source freshness is 36h warn / 72h error on `_loaded_at`. Adjust if the watch syncs less often.
-11. `dbt-duckdb` is missing on the pinned nixpkgs. OK to add that one package in a follow-up (see above)?
+
+The aggregation rules per kind (seed `health_kind_agg`) and the daily grain (`source_day`, groktor's `metrics.day`) are Data Architect recommendations. Sam can override either one.

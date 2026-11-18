@@ -22,8 +22,17 @@ models:
   warehouse:
     staging:
       +materialized: view
-      +schema: health
+      health:
+        +schema: health
     marts:
       +materialized: table
       health:
         +schema: health
+
+seeds:
+  warehouse:
+    health_kind_agg:
+      +schema: health
+      +column_types:
+        kind: varchar
+        agg_rule: varchar

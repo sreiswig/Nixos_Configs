@@ -1,6 +1,8 @@
 -- View over raw health Parquet. Dedupe on the SQLite primary key, keeping
 -- the latest _loaded_at so a rerun that appends the same rows does not
--- double-count.
+-- double-count. source_day is groktor's metrics.day. local_date is the
+-- America/Chicago date of recorded_at. Those two can differ in either
+-- direction for overnight rows.
 
 with source as (
     select * from {{ source('health', 'metrics') }}
@@ -15,7 +17,26 @@ casted as (
         cast(source_day as date) as source_day,
         cast(dt as date) as dt,
         cast(value as double) as value,
-        cast(unit as varchar) as unit,
+        case lower(trim(cast(unit as varchar)))
+            when 'percent' then '%'
+            when 'pct' then '%'
+            when '%' then '%'
+            when 'hrs' then 'hours'
+            when 'hr' then 'hours'
+            when 'hour' then 'hours'
+            when 'hours' then 'hours'
+            when 'minutes' then 'min'
+            when 'minute' then 'min'
+            when 'mins' then 'min'
+            when 'min' then 'min'
+            when 'steps' then 'count'
+            when 'step' then 'count'
+            when 'sec' then 's'
+            when 'secs' then 's'
+            when 'second' then 's'
+            when 'seconds' then 's'
+            else lower(trim(cast(unit as varchar)))
+        end as unit,
         cast(source as varchar) as source,
         cast(raw_name as varchar) as raw_name,
         cast(notes as varchar) as notes,

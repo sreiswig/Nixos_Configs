@@ -4,7 +4,9 @@ models:
   - name: stg_health__metrics
     description: >
       One row per personal_groktor metrics.id. Reruns keep the row from the
-      latest _loaded_at. local_date is recorded_at in America/Chicago.
+      latest _loaded_at. source_day is metrics.day. local_date is recorded_at
+      in America/Chicago. Unit aliases are folded onto the canonical strings.
+      accepted_values on kind and unit warn until an Amazfit parser lands.
     columns:
       - name: metric_id
         tests:
@@ -14,18 +16,30 @@ models:
         tests:
           - not_null
           - accepted_values:
+              config:
+                severity: warn
               values:
                 - sleep_duration_hours
                 - sleep_efficiency_pct
                 - resting_heart_rate_bpm
                 - heart_rate_variability_ms
+                - heart_rate
                 - steps
                 - active_calories_kcal
                 - exercise_minutes
+                - distance
+                - floors
                 - weight_kg
                 - body_fat_pct
                 - readiness_score
                 - spo2_pct
+                - deep_sleep
+                - light_sleep
+                - rem_sleep
+                - sleep_score
+                - stress
+                - pai
+                - vo2_max
       - name: category
         tests:
           - not_null
@@ -45,7 +59,9 @@ models:
         tests:
           - not_null
           - accepted_values:
-              values: ["hours", "%", "bpm", "ms", "count", "kcal", "min", "kg", "score", "unknown"]
+              config:
+                severity: warn
+              values: ["hours", "%", "bpm", "ms", "count", "kcal", "min", "kg", "score", "s"]
       - name: source
         tests: [not_null]
       - name: _loaded_at

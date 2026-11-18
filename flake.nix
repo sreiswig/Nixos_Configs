@@ -27,10 +27,36 @@
             # Local packages (available as pkgs.<name>; only installed where referenced)
             {
               nixpkgs.overlays = [
-                (final: prev: {
-                  grok-bot = final.callPackage ./pkgs/grok-bot { };
-                  warehouse-load-health = final.callPackage ./pkgs/warehouse-load-health { };
-                })
+                (final: prev:
+                  let
+                    # Default python3 is 3.14. dbt-semantic-interfaces (pulled in
+                    # by dbt-core) is disabled there because it uses pydantic v1.
+                    # Python 3.13 is the newest interpreter in this pin that can
+                    # build the stack. duckdb is python313.pkgs.duckdb, built
+                    # from pkgs.duckdb.
+                    #
+                    # dbt-common in this pin requires pathspec<1.1 and the set
+                    # has pathspec 1.1.1. Relax that one bound on the existing
+                    # package so the build can use it.
+                    warehousePythonPkgs = final.python313.override {
+                      packageOverrides = pyFinal: pyPrev: {
+                        dbt-common = pyPrev.dbt-common.overridePythonAttrs (old: {
+                          pythonRelaxDeps = (old.pythonRelaxDeps or [ ]) ++ [ "pathspec" ];
+                        });
+                      };
+                    };
+                    dbtDuckdb = warehousePythonPkgs.pkgs.callPackage ./pkgs/dbt-duckdb { };
+                  in
+                  {
+                    grok-bot = final.callPackage ./pkgs/grok-bot { };
+                    warehouse-load-health = final.callPackage ./pkgs/warehouse-load-health { };
+                    dbt-duckdb = dbtDuckdb;
+                    # withAdapters sets ignoreCollisions. dbt-core and the
+                    # adapters each ship namespace __init__.py files under dbt/.
+                    warehouse-python = warehousePythonPkgs.pkgs.dbt-core.withAdapters (
+                      _adapters: [ dbtDuckdb ]
+                    );
+                  })
               ];
             }
             

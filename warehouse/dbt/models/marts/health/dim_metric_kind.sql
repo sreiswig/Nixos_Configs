@@ -1,4 +1,5 @@
 -- One row per metric kind, taken from the latest loaded observation.
+-- The date span uses groktor's metrics.day (source_day).
 
 with ranked as (
     select
@@ -14,8 +15,8 @@ counts as (
     select
         kind,
         count(*) as observation_count,
-        min(local_date) as first_local_date,
-        max(local_date) as last_local_date
+        min(source_day) as first_source_day,
+        max(source_day) as last_source_day
     from {{ ref('stg_health__metrics') }}
     group by kind
 )
@@ -25,8 +26,8 @@ select
     ranked.category,
     ranked.unit,
     counts.observation_count,
-    counts.first_local_date,
-    counts.last_local_date
+    counts.first_source_day,
+    counts.last_source_day
 from ranked
 inner join counts
     on ranked.kind = counts.kind

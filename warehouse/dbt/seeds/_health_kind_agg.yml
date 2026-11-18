@@ -1,0 +1,18 @@
+version: 2
+
+seeds:
+  - name: health_kind_agg
+    description: >
+      Maps a metric kind to sum (additive samples) or latest (point-in-time,
+      still storing avg/min/max). Data Architect recommendation; edit the seed
+      to override.
+    columns:
+      - name: kind
+        tests:
+          - not_null
+          - unique
+      - name: agg_rule
+        tests:
+          - not_null
+          - accepted_values:
+              values: ["sum", "latest"]

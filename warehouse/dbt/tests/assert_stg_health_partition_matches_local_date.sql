@@ -1,5 +1,5 @@
--- Hive dt must match the Chicago local date so partition pruning and
--- fct_health_daily.local_date describe the same day.
+-- The loader's hive dt is the America/Chicago date of recorded_at, which
+-- staging also stores as local_date. source_day is a separate column.
 select
     metric_id,
     local_date,
