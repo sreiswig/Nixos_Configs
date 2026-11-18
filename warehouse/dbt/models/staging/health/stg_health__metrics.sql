@@ -44,6 +44,40 @@ casted as (
             when 'secs' then 's'
             when 'second' then 's'
             when 'seconds' then 's'
+            when 'beats per minute' then 'bpm'
+            when 'beats/minute' then 'bpm'
+            when 'bpm' then 'bpm'
+            when 'meter' then 'm'
+            when 'meters' then 'm'
+            when 'metre' then 'm'
+            when 'metres' then 'm'
+            when 'm' then 'm'
+            when 'kilometer' then 'km'
+            when 'kilometers' then 'km'
+            when 'kilometre' then 'km'
+            when 'kilometres' then 'km'
+            when 'km' then 'km'
+            when 'mile' then 'mile'
+            when 'miles' then 'mile'
+            when 'kilocalorie' then 'kcal'
+            when 'kilocalories' then 'kcal'
+            when 'kcal' then 'kcal'
+            when 'kilojoule' then 'kj'
+            when 'kilojoules' then 'kj'
+            when 'kj' then 'kj'
+            when 'gram' then 'g'
+            when 'grams' then 'g'
+            when 'g' then 'g'
+            when 'kilogram' then 'kg'
+            when 'kilograms' then 'kg'
+            when 'kg' then 'kg'
+            when 'pound' then 'lb'
+            when 'pounds' then 'lb'
+            when 'lbs' then 'lb'
+            when 'lb' then 'lb'
+            when 'millisecond' then 'ms'
+            when 'milliseconds' then 'ms'
+            when 'ms' then 'ms'
             else lower(trim(cast(unit as varchar)))
         end as unit_norm,
         cast(source as varchar) as source,
@@ -56,6 +90,28 @@ casted as (
     from source
 ),
 
+factors as (
+    select * from (
+        values
+            ('s', 'time', 1.0),
+            ('min', 'time', 60.0),
+            ('hours', 'time', 3600.0),
+            ('m', 'length', 1.0),
+            ('km', 'length', 1000.0),
+            ('mile', 'length', 1609.344),
+            ('kcal', 'energy', 1.0),
+            ('kj', 'energy', 1.0 / 4.184),
+            ('kg', 'mass', 1.0),
+            ('g', 'mass', 0.001),
+            ('lb', 'mass', 0.45359237),
+            ('%', 'ratio', 1.0),
+            ('bpm', 'rate', 1.0),
+            ('ms', 'ms', 1.0),
+            ('count', 'count', 1.0),
+            ('score', 'score', 1.0)
+    ) as t(unit, family, to_base)
+),
+
 converted as (
     select
         casted.metric_id,
@@ -65,35 +121,14 @@ converted as (
         casted.source_day,
         casted.dt,
         case
-            when rules.canonical_unit in ('s', 'min', 'hours')
-                and casted.unit_norm in ('s', 'min', 'hours')
-                and casted.unit_norm = 's' and rules.canonical_unit = 'min'
-                then casted.value_raw / 60.0
-            when rules.canonical_unit in ('s', 'min', 'hours')
-                and casted.unit_norm in ('s', 'min', 'hours')
-                and casted.unit_norm = 's' and rules.canonical_unit = 'hours'
-                then casted.value_raw / 3600.0
-            when rules.canonical_unit in ('s', 'min', 'hours')
-                and casted.unit_norm in ('s', 'min', 'hours')
-                and casted.unit_norm = 'min' and rules.canonical_unit = 'hours'
-                then casted.value_raw / 60.0
-            when rules.canonical_unit in ('s', 'min', 'hours')
-                and casted.unit_norm in ('s', 'min', 'hours')
-                and casted.unit_norm = 'min' and rules.canonical_unit = 's'
-                then casted.value_raw * 60.0
-            when rules.canonical_unit in ('s', 'min', 'hours')
-                and casted.unit_norm in ('s', 'min', 'hours')
-                and casted.unit_norm = 'hours' and rules.canonical_unit = 'min'
-                then casted.value_raw * 60.0
-            when rules.canonical_unit in ('s', 'min', 'hours')
-                and casted.unit_norm in ('s', 'min', 'hours')
-                and casted.unit_norm = 'hours' and rules.canonical_unit = 's'
-                then casted.value_raw * 3600.0
+            when from_unit.family is not null
+                and from_unit.family = to_unit.family
+                then casted.value_raw * from_unit.to_base / to_unit.to_base
             else casted.value_raw
         end as value,
         case
-            when rules.canonical_unit in ('s', 'min', 'hours')
-                and casted.unit_norm in ('s', 'min', 'hours')
+            when from_unit.family is not null
+                and from_unit.family = to_unit.family
                 then rules.canonical_unit
             else casted.unit_norm
         end as unit,
@@ -107,6 +142,10 @@ converted as (
     from casted
     left join rules
         on casted.kind = rules.kind
+    left join factors as from_unit
+        on casted.unit_norm = from_unit.unit
+    left join factors as to_unit
+        on rules.canonical_unit = to_unit.unit
 ),
 
 with_local as (

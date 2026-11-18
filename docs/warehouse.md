@@ -107,7 +107,7 @@ sudo systemctl start warehouse-load-health.service
 - `sum` for additive kinds (`steps`, `active_calories_kcal`, `exercise_minutes`, plus distance, floors, and sleep durations)
 - `latest` for point-in-time kinds (resting heart rate, HRV, heart rate, weight, percentages, scores). `value`, `unit`, and `_loaded_at` come from one row: latest `recorded_at`, then latest `_loaded_at`, then `metric_id`. `value_avg`, `value_min`, and `value_max` are stored for every kind.
 
-A test fails the build when a staged kind has no seed row, and when a kind from the `accepted_values` list has no seed row. Staging renames unit aliases and converts the value into the kind's canonical unit (`sec` and `seconds` become minutes or hours, `hrs` becomes minutes when the kind is in minutes). A test fails when one `source_day` and kind still has more than one unit after that. `accepted_values` on `kind` and `unit` is severity `warn` until an Amazfit or Zepp parser lands. There is no `unknown` unit.
+A test fails the build when a staged kind has no seed row, and when a kind from the `accepted_values` list has no seed row. Staging renames unit aliases and converts the value into the kind's canonical unit when the factor is known: time (`s`, `min`, `hours`), length (`m`, `km`, `mile`), energy (`kJ` to `kcal`), and mass (`g`, `kg`, `lb`). `beats per minute` becomes `bpm`. Anything else stays as written, and an error-severity test fails the build when a row's unit still differs from the seed, so it is not summed into `fct_health_daily` unnoticed. A second test fails when one `source_day` and kind still has more than one unit. `accepted_values` on `kind` and `unit` is severity `warn` until an Amazfit or Zepp parser lands. There is no `unknown` unit.
 
 Other tests: `unique` and `not_null` on keys, `accepted_values` on `category`, `relationships` from the fact to the dimension, and a singular test that `local_date` equals the hive `dt`. Source `health.metrics` has freshness on `_loaded_at` (warn after 36 hours, error after 72). `warehouse-dbt.service` runs `dbt build` and then `dbt source freshness` when at least one Parquet file exists. `ExecCondition` exits 1 otherwise. Exit codes 1 through 254 skip the unit and leave it inactive. Exit 255 would mark it failed, so the guard does not use 255. An empty loader run (zero files) still has `OnSuccess`, and that condition skips dbt.
 
@@ -192,6 +192,8 @@ When Sam turns it on, `services.restic.backups.warehouse` backs up:
 | Check | monthly, only after `backup.enable = true` |
 
 The placeholder file is created only when `backup.enable` is true, and only if `/etc/restic/warehouse-repo` is absent. tmpfiles writes the single line `PLACEHOLDER` and does not overwrite a file that is already there. Replace that line with the restic URL on the host. Create the password file on the host. Neither file belongs in git. With `backup.enable` left false, that path is not created.
+
+Turning `backup.enable` on still installs the restic timer. `restic-backups-warehouse` and `warehouse-restic-check` skip (`ExecCondition` exit 1, unit stays inactive) while the repository file is missing, empty, or still `PLACEHOLDER`, or while the password file is missing or empty. Exit 255 is not used. After you replace the placeholder and create the password file, the next timer run performs the backup.
 
 ```bash
 sudo install -m 0400 /dev/null /etc/restic/warehouse-password

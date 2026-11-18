@@ -391,13 +391,16 @@ fn parse_row(index: usize, row: &rusqlite::Row<'_>) -> LoadResult<MetricRow> {
     validate_token(index, "id", &id, 80)?;
     validate_token(index, "kind", &kind, 128)?;
     validate_token(index, "category", &category, 64)?;
-    validate_token(index, "unit", &unit, 32)?;
-    validate_token(index, "source", &source, 128)?;
+    // source, unit, raw_name, and notes are column values. They are not
+    // used to build paths (the hive path uses the loader source name,
+    // the Chicago date, and the run id).
+    validate_data(index, "unit", &unit, 64)?;
+    validate_data(index, "source", &source, 256)?;
     if let Some(name) = &raw_name {
-        validate_text(index, "raw_name", name, 256)?;
+        validate_data(index, "raw_name", name, 256)?;
     }
     if let Some(note) = &notes {
-        validate_text(index, "notes", note, 2000)?;
+        validate_data(index, "notes", note, 2000)?;
     }
     if !value.is_finite() {
         return Err(LoadError::new(format!(
@@ -466,6 +469,20 @@ fn validate_token(index: usize, name: &str, value: &str, max: usize) -> LoadResu
     if value.chars().any(|c| c.is_whitespace()) {
         return Err(LoadError::new(format!(
             "row {index}: {name} contains whitespace"
+        )));
+    }
+    Ok(())
+}
+
+fn validate_data(index: usize, name: &str, value: &str, max: usize) -> LoadResult<()> {
+    if value.len() > max {
+        return Err(LoadError::new(format!(
+            "row {index}: {name} is longer than {max} bytes"
+        )));
+    }
+    if value.chars().any(|c| c.is_control()) {
+        return Err(LoadError::new(format!(
+            "row {index}: {name} contains a control character"
         )));
     }
     Ok(())
@@ -812,6 +829,89 @@ mod tests {
         })
         .unwrap_err();
         assert!(err.to_string().contains("missing columns"), "{err}");
+    }
+
+    #[test]
+    fn source_and_unit_text_is_data_not_a_path() {
+        let tmp = tempfile_dir();
+        let path = tmp.join("data.db");
+        let conn = Connection::open(&path).unwrap();
+        conn.execute_batch(
+            "CREATE TABLE metrics (
+                id TEXT PRIMARY KEY,
+                kind TEXT NOT NULL,
+                category TEXT NOT NULL,
+                recorded_at TEXT NOT NULL,
+                day TEXT NOT NULL,
+                value REAL NOT NULL,
+                unit TEXT NOT NULL,
+                source TEXT NOT NULL,
+                raw_name TEXT,
+                notes TEXT
+            );",
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO metrics
+                (id, kind, category, recorded_at, day, value, unit, source, raw_name, notes)
+             VALUES
+                ('id-space', 'resting_heart_rate_bpm', 'heart',
+                 '2026-07-21T15:00:00+00:00', '2026-07-21', 58,
+                 'beats per minute', 'Apple Watch', 'Apple Watch', 'walk a/b'),
+                ('id-slash', 'steps', 'activity',
+                 '2026-07-21T16:00:00+00:00', '2026-07-21', 100,
+                 'beats/minute', 'vendor/device', 'raw/name', 'note/with/slash')",
+            [],
+        )
+        .unwrap();
+        let report = load(&LoadConfig {
+            sqlite_path: path,
+            raw_root: tmp.join("raw"),
+            source: "health".into(),
+        })
+        .unwrap();
+        assert_eq!(report.rows, 2);
+        assert_eq!(report.files.len(), 1);
+        let file = &report.files[0];
+        let rel = file.strip_prefix(tmp.join("raw")).unwrap();
+        let rel_str = rel.to_string_lossy();
+        assert!(rel_str.starts_with("health/dt="), "{rel_str}");
+        assert!(!rel_str.contains("Apple"));
+        assert!(!rel_str.contains("beats"));
+        assert!(!rel_str.contains("vendor"));
+
+        let opened = File::open(file).unwrap();
+        let reader = ParquetRecordBatchReaderBuilder::try_new(opened)
+            .unwrap()
+            .build()
+            .unwrap();
+        let batches: Vec<_> = reader.collect::<Result<Vec<_>, _>>().unwrap();
+        let batch = &batches[0];
+        let sources = batch
+            .column_by_name("source")
+            .unwrap()
+            .as_any()
+            .downcast_ref::<arrow_array::StringArray>()
+            .unwrap();
+        let units = batch
+            .column_by_name("unit")
+            .unwrap()
+            .as_any()
+            .downcast_ref::<arrow_array::StringArray>()
+            .unwrap();
+        let mut saw_watch = false;
+        let mut saw_slash = false;
+        for i in 0..batch.num_rows() {
+            if sources.value(i) == "Apple Watch" {
+                saw_watch = true;
+                assert_eq!(units.value(i), "beats per minute");
+            }
+            if sources.value(i) == "vendor/device" {
+                saw_slash = true;
+                assert_eq!(units.value(i), "beats/minute");
+            }
+        }
+        assert!(saw_watch && saw_slash);
     }
 
     #[test]

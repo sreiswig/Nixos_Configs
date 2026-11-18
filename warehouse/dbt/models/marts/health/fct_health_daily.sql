@@ -5,7 +5,7 @@
 -- value_avg, value_min, and value_max describe every sample in the group.
 
 with rules as (
-    select kind, agg_rule
+    select kind, agg_rule, canonical_unit
     from {{ ref('health_kind_agg') }}
 ),
 
@@ -16,6 +16,7 @@ sampled as (
     from {{ ref('stg_health__metrics') }} as metrics
     inner join rules
         on metrics.kind = rules.kind
+        and metrics.unit = rules.canonical_unit
 ),
 
 ranked as (

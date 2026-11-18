@@ -91,6 +91,26 @@ let
     fi
   '';
 
+  # Exit 1 skips. Exit 255 would mark the unit failed.
+  resticRepoReady = pkgs.writeShellScript "warehouse-restic-ready" ''
+    set -eu
+    repo="${cfg.backup.repositoryFile}"
+    pass="${cfg.backup.passwordFile}"
+    if [ ! -s "$repo" ]; then
+      echo "warehouse restic: repository file missing or empty; skipping"
+      exit 1
+    fi
+    token="$(${pkgs.coreutils}/bin/tr -d '[:space:]' < "$repo")"
+    if [ "$token" = "PLACEHOLDER" ]; then
+      echo "warehouse restic: repository file is still PLACEHOLDER; skipping"
+      exit 1
+    fi
+    if [ ! -s "$pass" ]; then
+      echo "warehouse restic: password file missing or empty; skipping"
+      exit 1
+    fi
+  '';
+
   stateDirConfig = optionalAttrs (stateDirectory != null) {
     StateDirectory = stateDirectory;
     StateDirectoryMode = "0750";
@@ -314,24 +334,33 @@ in
           data="${cfg.dataDir}"
           mkdir -p "$data/home/cache" "$data/dbt/target" "$data/raw/health" \
             "$data/inbox/health" "$data/export"
-          rm -rf "$data/dbt/project"
-          mkdir -p "$data/dbt/project"
-          cp -a ${dbtProject}/. "$data/dbt/project/"
+          # A previous run may have copied the Nix store tree with mode 555/444.
+          # chmod before rm, and do not preserve those modes on the new copy.
+          if [ -e "$data/dbt/project" ]; then
+            chmod -R u+w "$data/dbt/project" || true
+            rm -rf "$data/dbt/project"
+          fi
+          mkdir -p "$data/dbt/project" "$data/dbt/logs" "$data/dbt/target"
+          cp -a --no-preserve=mode ${dbtProject}/. "$data/dbt/project/"
+          chmod -R u+w "$data/dbt/project"
           install -m 0640 ${profilesFile} "$data/dbt/profiles.yml"
           export WAREHOUSE_DBT_PROJECT="$data/dbt/project"
           export WAREHOUSE_DBT_PROFILES="$data/dbt"
           export WAREHOUSE_DBT_TARGET="$data/dbt/target"
+          export WAREHOUSE_DBT_LOGS="$data/dbt/logs"
           flock -w 1800 "$data/.write.lock" bash -c '
             set -eu
             dbt build \
               --project-dir "$WAREHOUSE_DBT_PROJECT" \
               --profiles-dir "$WAREHOUSE_DBT_PROFILES" \
               --target-path "$WAREHOUSE_DBT_TARGET" \
+              --log-path "$WAREHOUSE_DBT_LOGS" \
               --target prod
             dbt source freshness \
               --project-dir "$WAREHOUSE_DBT_PROJECT" \
               --profiles-dir "$WAREHOUSE_DBT_PROFILES" \
               --target-path "$WAREHOUSE_DBT_TARGET" \
+              --log-path "$WAREHOUSE_DBT_LOGS" \
               --target prod
           '
           if [ -f "$data/warehouse.duckdb" ]; then
@@ -345,6 +374,9 @@ in
         '';
       };
     } // optionalAttrs cfg.backup.enable {
+      restic-backups-warehouse = {
+        serviceConfig.ExecCondition = resticRepoReady;
+      };
       warehouse-restic-check = {
         description = "Monthly restic check of the warehouse repository";
         after = [ "network-online.target" ];
@@ -353,6 +385,7 @@ in
           Type = "oneshot";
           User = "root";
           CacheDirectory = "restic-backups-warehouse";
+          ExecCondition = resticRepoReady;
           ExecStart = "${lib.getExe pkgs.restic} check";
           Environment = [
             "RESTIC_PASSWORD_FILE=${cfg.backup.passwordFile}"
@@ -386,6 +419,9 @@ in
 
     # Raw Parquet and the copied dbt project. warehouse.duckdb is rebuildable
     # with `dbt build`, so it is not in paths. initialize stays false.
+    # restic-backups-warehouse skips (ExecCondition exit 1) while the repo
+    # file is missing, empty, or still PLACEHOLDER, or the password file
+    # is missing. Exit 255 would fail the unit.
     services.restic.backups = optionalAttrs cfg.backup.enable {
       warehouse = {
         initialize = false;
