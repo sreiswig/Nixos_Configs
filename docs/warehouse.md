@@ -27,10 +27,10 @@ State directory: `/var/lib/warehouse` (`services.dataWarehouse.dataDir`).
 |------|------|--------|
 | `/var/lib/warehouse` | `0750` | `warehouse:warehouse` |
 | `raw/` | `0750` | `warehouse:warehouse` |
-| `inbox/health/` | `2770` | `warehouse:warehouse` (sam can drop a file) |
+| `inbox/health/` | `1750` | `sam:warehouse` (writer owns it; loader group can read and traverse; sticky bit) |
 | `warehouse.duckdb` | `0640` | created by the dbt unit (`UMask=0027`) |
 
-`sam` is in group `warehouse`, so `sam` can read the data dir and write the inbox. Raw files stay immutable: the loader never rewrites or deletes an existing Parquet file. A second run writes a new `<run_id>.parquet` under the same `dt=` directory. Staging dedupes.
+`sam` is in group `warehouse`, so `sam` can read the data dir. `sam` owns `inbox/health` and is the only user who can create or rename files there. The `warehouse` group has read and execute on that directory, and the sticky bit is set. The loader runs as `warehouse` and only needs to read the snapshot. Raw files stay immutable: the loader never rewrites or deletes an existing Parquet file. A second run writes a new `<run_id>.parquet` under the same `dt=` directory. Staging dedupes.
 
 `dt` is the America/Chicago calendar date of `recorded_at` (the host timezone in `modules/common`). The daily fact buckets on groktor's `metrics.day`, stored as `source_day`. `local_date` stays on the row. Overnight sleep can make `source_day` and `local_date` disagree in either direction (the Chicago date of `recorded_at` can fall on the day before or the day after groktor's `day`). A warn-severity test flags those rows.
 
@@ -57,17 +57,11 @@ It opens personal_groktor's SQLite database read-only (`SQLITE_OPEN_READ_ONLY` a
 | `raw_name` | `raw_name` | nullable |
 | `notes` | `notes` | nullable |
 
-The loader rejects a missing file, a missing `metrics` table, a missing column, a non-finite value, a bad date, or a path-shaped token. It also rejects a symlink or any non-regular inbox entry, including `data.db-wal`. On validation failure it publishes nothing for that run. Writes go to `.<run_id>.parquet.partial`, then `fsync`, then `rename` in the same directory.
+The loader rejects a missing file, a missing `metrics` table, a missing column, a non-finite value, a bad date, or a path-shaped token. It also rejects a symlink or any non-regular `data.db`. On validation failure it publishes nothing for that run. Writes go to `.<run_id>.parquet.partial`, then `fsync`, then `rename` in the same directory.
 
-The loader is read-only on the inbox. It never creates, renames, or deletes a file there. SQLite never opens the inbox path, so it never reads an inbox `-shm` and never creates `-wal` or `-shm` beside the inbox file.
+The inbox file is a snapshot, not groktor's live database. Groktor keeps its own database in WAL mode. A separate groktor change writes the warehouse snapshot: one rollback-journal SQLite file, created under a temp name in `inbox/health` that starts with `.` and ends in `.tmp` (for example `.data.db.XXXX.tmp`), fsynced, then atomically renamed to `data.db`. The loader never reads or deletes dotfiles or `.tmp` files.
 
-The acquisition mode is one seam: `services.dataWarehouse.loaders.<name>.inputMode`, `--input-mode`, or `WAREHOUSE_INPUT_MODE`. The default is `wal-copy`. In that mode the loader checks `data.db` and, when present and non-empty, `data.db-wal` with `lstat`, `O_NOFOLLOW`, a regular-file check, and the same owner as `data.db`. It records inode, size, mtime, and ctime. A missing `-wal` or a zero-length `-wal` means there is no wal. An inbox `-shm` is not opened and not copied. The loader copies the verified descriptors into mode `0600` files in a mode `0700` directory (`RUNTIME_DIRECTORY` when the unit sets one, otherwise a private temp directory), using the same basenames so SQLite pairs `data.db` with `data.db-wal`. It then `fstat`s the descriptors and `lstat`s the inbox paths again. If the inode, size, mtime, or ctime changed, it retries up to 8 times and then fails without publishing. SQLite opens only that private copy and builds its own `-shm` there.
-
-Before that open, a copied `-wal` is checked the way SQLite checks a log: header magic, version `3007000`, page size equal to the database page size, header checksum, then every frame's salt and running checksum against the copied database's page size. A wal that fails that chain is rejected. SQLite would ignore frames after the first bad one; this loader does not silently truncate. A wal that does chain, including a stale wal or one re-signed with new salts, cannot be told apart from the writer's own log by these checks. The boundary is that only a user who can write the inbox can replace `data.db` or `data.db-wal`. `PRAGMA schema_version` and `PRAGMA integrity_check` then have to succeed. Anything other than `integrity_check` = `ok` fails the load and publishes nothing.
-
-`inputMode = "snapshot"` is the other side of the seam. It expects one rollback-journal file, refuses a `-wal`, `-shm`, or `-journal` beside it, copies the verified file, and opens the copy with `immutable=1`. `wal-copy` stays the default. personal_groktor is not changed to emit that file.
-
-`inbox/health` is `2770` so sam can drop `data.db`. A sticky bit on that directory would stop one group member from renaming another's file. That change is not in this module. A groktor-side export that checkpoints, switches the copy to `journal_mode=DELETE`, or uses `.backup`, then loads with `inputMode = "snapshot"`, would be a separate change in personal_groktor. It is not done here.
+The loader is read-only on the inbox. It `lstat`s `data.db`, opens it with `O_NOFOLLOW`, and checks that the fd is the same regular file and the same owner. Header bytes 18 and 19 must both be `1` (rollback journal). `2` is WAL mode and fails the load. If `data.db-wal`, `data.db-shm`, or `data.db-journal` exists beside `data.db`, the load fails and publishes nothing. The loader copies the verified fd into a mode `0600` file in a mode `0700` directory (`RUNTIME_DIRECTORY` when the unit sets one, otherwise a private temp directory) and opens only that copy with `immutable=1` and `SQLITE_OPEN_READ_ONLY`. SQLite reopens by path, so it must not be given the inbox path. After the copy, the loader `fstat`s the source fd again and fails if the inode, size, or mtime changed. `PRAGMA schema_version` and `PRAGMA integrity_check` then have to succeed. Anything other than `integrity_check` = `ok` fails the load and publishes nothing.
 
 The private copy is removed when the load returns, including a Rust error. `SIGKILL` does not run that cleanup, and neither does `SIGTERM` if the process is killed before `Drop` runs. The unit does not set `RuntimeDirectoryPreserve`, so when `warehouse-load-health` stops, including after `SIGKILL`, systemd deletes `/run/warehouse-load-health` and any snapshot still in it. A manual run uses the temp directory, and those `warehouse-sqlite-*` directories stay until you remove them. At the start of a load, if `RUNTIME_DIRECTORY` is set, the loader deletes leftover direct children of that directory whose names start with `warehouse-sqlite-`, but only when `lstat` shows a real directory owned by the loader user and `O_NOFOLLOW` opens that same inode. A symlink, a regular file, another user's directory, or any other name is left in place.
 
@@ -76,8 +70,8 @@ Default SQLite path: `/var/lib/warehouse/inbox/health/data.db`.
 Place a copy (synthetic example):
 
 ```bash
-install -m 0640 -o warehouse -g warehouse \
-  /path/to/data.db /var/lib/warehouse/inbox/health/data.db
+install -m 0640 -o sam -g warehouse \
+  /path/to/rollback-snapshot.db /var/lib/warehouse/inbox/health/data.db
 ```
 
 Override the path without putting secrets in the repo. On AIServer, as root:

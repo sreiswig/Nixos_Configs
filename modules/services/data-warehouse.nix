@@ -156,7 +156,6 @@ let
       environment = {
         WAREHOUSE_DATA_DIR = cfg.dataDir;
         HOME = "${cfg.dataDir}/home";
-        WAREHOUSE_INPUT_MODE = loader.inputMode;
       } // loader.environment;
       serviceConfig = hardened // stateDirConfig // (if loader.network then onlineNet else offlineNet) // {
         Type = "oneshot";
@@ -254,20 +253,6 @@ in
               AI_Dispatch Postgres reader.
             '';
           };
-
-          inputMode = mkOption {
-            type = types.enum [ "wal-copy" "snapshot" ];
-            default = "wal-copy";
-            description = ''
-              How this loader reads its SQLite input. wal-copy (the default)
-              copies data.db and a non-empty data.db-wal into a private
-              directory and opens only that copy. An inbox -shm is not read
-              and is not copied. snapshot copies one rollback-journal file
-              and opens it with immutable=1, and refuses a -wal, -shm, or
-              -journal beside it. personal_groktor is not changed to produce
-              that file. The value is passed as WAREHOUSE_INPUT_MODE.
-            '';
-          };
         };
       });
       default = { };
@@ -355,16 +340,16 @@ in
       warehousePython
     ];
 
-    # Layout. inbox/health is group-writable so sam can drop data.db.
-    # The loader only reads that directory. SQLite sidecars are created in
-    # the loader's private snapshot dir, not in the inbox.
+    # Layout. inbox/health is owned by sam, the writer. Mode 1750 is
+    # owner rwx, group rx, sticky. The warehouse group can traverse and
+    # read a group-readable snapshot. The loader does not need write access.
     # raw/ stays 0750. UMask=0027 on the units makes new files 0640.
     systemd.tmpfiles.rules = [
       "d ${cfg.dataDir} 0750 warehouse warehouse - -"
       "d ${cfg.dataDir}/raw 0750 warehouse warehouse - -"
       "d ${cfg.dataDir}/raw/health 0750 warehouse warehouse - -"
       "d ${cfg.dataDir}/inbox 0750 warehouse warehouse - -"
-      "d ${cfg.dataDir}/inbox/health 2770 warehouse warehouse - -"
+      "d ${cfg.dataDir}/inbox/health 1750 sam warehouse - -"
       "d ${cfg.dataDir}/dbt 0750 warehouse warehouse - -"
       "d ${cfg.dataDir}/dbt/target 0750 warehouse warehouse - -"
       "d ${cfg.dataDir}/home 0750 warehouse warehouse - -"

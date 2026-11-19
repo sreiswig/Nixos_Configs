@@ -122,7 +122,7 @@
             machine.succeed("test \"$(systemctl show -p Result --value restic-backups-warehouse.service)\" = exec-condition")
             machine.succeed("test \"$(systemctl show -p Result --value warehouse-restic-check.service)\" = exec-condition")
 
-            machine.succeed("install -d -o warehouse -g warehouse -m 2770 /var/lib/warehouse/inbox/health")
+            machine.succeed("install -d -o sam -g warehouse -m 1750 /var/lib/warehouse/inbox/health")
             machine.succeed(
                 "sqlite3 /var/lib/warehouse/inbox/health/data.db "
                 + "\"CREATE TABLE metrics (id TEXT PRIMARY KEY, kind TEXT NOT NULL, category TEXT NOT NULL, recorded_at TEXT NOT NULL, day TEXT NOT NULL, value REAL NOT NULL, unit TEXT NOT NULL, source TEXT NOT NULL, raw_name TEXT, notes TEXT);\""
@@ -143,29 +143,21 @@
                 "sqlite3 /var/lib/warehouse/inbox/health/data.db "
                 + "\"INSERT INTO metrics VALUES ('44444444-4444-4444-8444-444444444444', 'spo2_pct', 'body', '2026-07-21T15:00:00+00:00', '2026-07-21', 98, '%', 'band', 'band', NULL);\""
             )
-            machine.succeed(
-                "sqlite3 /var/lib/warehouse/inbox/health/data.db "
-                + "\"PRAGMA journal_mode=WAL; PRAGMA wal_checkpoint(TRUNCATE);\""
-            )
-            machine.succeed("rm -f /var/lib/warehouse/inbox/health/data.db-wal /var/lib/warehouse/inbox/health/data.db-shm")
-            machine.succeed("chown warehouse:warehouse /var/lib/warehouse/inbox/health/data.db")
+            machine.succeed("chown sam:warehouse /var/lib/warehouse/inbox/health/data.db")
             machine.succeed("chmod 0640 /var/lib/warehouse/inbox/health/data.db")
+            machine.succeed("cp -a /var/lib/warehouse/inbox/health/data.db /tmp/good-snapshot.db")
             machine.succeed("systemctl start warehouse-load-health.service")
             machine.succeed("test \"$(systemctl show -p Result --value warehouse-load-health.service)\" = success")
-            machine.succeed("test ! -e /var/lib/warehouse/inbox/health/data.db-wal")
-            machine.succeed("test ! -e /var/lib/warehouse/inbox/health/data.db-shm")
-            machine.succeed("systemctl start warehouse-load-health.service")
-            machine.succeed("test \"$(systemctl show -p Result --value warehouse-load-health.service)\" = success")
-            machine.succeed("test ! -e /var/lib/warehouse/inbox/health/data.db-wal")
-            machine.succeed("test ! -e /var/lib/warehouse/inbox/health/data.db-shm")
             machine.succeed("test \"$(ls -A /var/lib/warehouse/inbox/health | sort | paste -sd' ' -)\" = data.db")
-            machine.succeed("install -o warehouse -g warehouse -m 0640 /dev/null /var/lib/warehouse/inbox/health/data.db-wal")
             machine.succeed("systemctl start warehouse-load-health.service")
             machine.succeed("test \"$(systemctl show -p Result --value warehouse-load-health.service)\" = success")
-            machine.succeed("test -f /var/lib/warehouse/inbox/health/data.db-wal")
-            machine.succeed("test ! -s /var/lib/warehouse/inbox/health/data.db-wal")
-            machine.succeed("test ! -e /var/lib/warehouse/inbox/health/data.db-shm")
-            machine.succeed("test \"$(ls -A /var/lib/warehouse/inbox/health | sort | paste -sd' ' -)\" = 'data.db data.db-wal'")
+            machine.succeed("test \"$(ls -A /var/lib/warehouse/inbox/health | sort | paste -sd' ' -)\" = data.db")
+            machine.succeed("install -o sam -g warehouse -m 0640 /dev/null /var/lib/warehouse/inbox/health/.data.db.abcd.tmp")
+            machine.succeed("systemctl start warehouse-load-health.service")
+            machine.succeed("test \"$(systemctl show -p Result --value warehouse-load-health.service)\" = success")
+            machine.succeed("test -f /var/lib/warehouse/inbox/health/.data.db.abcd.tmp")
+            machine.succeed("test ! -s /var/lib/warehouse/inbox/health/.data.db.abcd.tmp")
+            machine.succeed("rm -f /var/lib/warehouse/inbox/health/.data.db.abcd.tmp")
             machine.succeed("systemctl start warehouse-dbt.service")
             machine.succeed("systemctl start warehouse-dbt.service")
             machine.fail("systemctl is-failed warehouse-dbt.service")
@@ -252,6 +244,57 @@
                 """
             )
 
+            # WAL header, each sidecar, and a corrupt page all fail the unit.
+            # The good rollback snapshot is restored afterward.
+            machine.succeed(
+                r"""
+                set -eu
+                inbox=/var/lib/warehouse/inbox/health
+                rm -f /tmp/wal-snapshot.db /tmp/wal-snapshot.db-wal /tmp/wal-snapshot.db-shm
+                sqlite3 /tmp/wal-snapshot.db 'PRAGMA journal_mode=WAL; CREATE TABLE t(x); INSERT INTO t VALUES (1);'
+                sqlite3 /tmp/wal-snapshot.db 'PRAGMA wal_checkpoint(TRUNCATE);'
+                rm -f /tmp/wal-snapshot.db-wal /tmp/wal-snapshot.db-shm
+                cp -a /tmp/wal-snapshot.db "$inbox/data.db"
+                chown sam:warehouse "$inbox/data.db"
+                chmod 0640 "$inbox/data.db"
+                systemctl reset-failed warehouse-load-health.service || true
+                if systemctl start warehouse-load-health.service; then
+                  echo "WAL snapshot was accepted"
+                  exit 1
+                fi
+                journalctl -u warehouse-load-health.service --no-pager | grep -F 'rollback-journal'
+                for suffix in wal shm journal; do
+                  cp -a /tmp/good-snapshot.db "$inbox/data.db"
+                  chown sam:warehouse "$inbox/data.db"
+                  chmod 0640 "$inbox/data.db"
+                  rm -f "$inbox/data.db-wal" "$inbox/data.db-shm" "$inbox/data.db-journal"
+                  install -o sam -g warehouse -m 0640 /dev/null "$inbox/data.db-$suffix"
+                  systemctl reset-failed warehouse-load-health.service || true
+                  if systemctl start warehouse-load-health.service; then
+                    echo "sidecar $suffix was accepted"
+                    exit 1
+                  fi
+                  journalctl -u warehouse-load-health.service --no-pager | grep -F "data.db-$suffix"
+                  rm -f "$inbox/data.db-$suffix"
+                done
+                cp -a /tmp/good-snapshot.db "$inbox/data.db"
+                dd if=/dev/zero of="$inbox/data.db" bs=1 count=80 seek=100 conv=notrunc status=none
+                chown sam:warehouse "$inbox/data.db"
+                chmod 0640 "$inbox/data.db"
+                systemctl reset-failed warehouse-load-health.service || true
+                if systemctl start warehouse-load-health.service; then
+                  echo "corrupt snapshot was accepted"
+                  exit 1
+                fi
+                journalctl -u warehouse-load-health.service --no-pager | grep -E 'integrity_check|malformed'
+                cp -a /tmp/good-snapshot.db "$inbox/data.db"
+                chown sam:warehouse "$inbox/data.db"
+                chmod 0640 "$inbox/data.db"
+                rm -f "$inbox/data.db-wal" "$inbox/data.db-shm" "$inbox/data.db-journal"
+                systemctl reset-failed warehouse-load-health.service || true
+                """
+            )
+
             # A symlinked inbox database is refused and does not publish Parquet.
             machine.succeed(
                 "sqlite3 /tmp/secret.db "
@@ -293,7 +336,7 @@
                 install -d -o warehouse -g warehouse -m 0700 "$rt/keep-me"
                 install -d -o warehouse -g warehouse -m 0700 /tmp/wh-sweep-raw
                 before=$(ls -A /var/lib/warehouse/inbox/health | sort)
-                runuser -u warehouse -- env RUNTIME_DIRECTORY="$rt" WAREHOUSE_INPUT_MODE=wal-copy \
+                runuser -u warehouse -- env RUNTIME_DIRECTORY="$rt" \
                   warehouse-load-health --sqlite /var/lib/warehouse/inbox/health/data.db \
                   --raw-root /tmp/wh-sweep-raw --source health
                 echo sweep-ran
