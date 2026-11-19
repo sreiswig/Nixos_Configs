@@ -156,6 +156,9 @@ let
       environment = {
         WAREHOUSE_DATA_DIR = cfg.dataDir;
         HOME = "${cfg.dataDir}/home";
+        # Writer account. The loader resolves this to a uid at start and
+        # refuses a data.db owned by anyone else. Not a hardcoded uid.
+        WAREHOUSE_WRITER_USER = "sam";
       } // loader.environment;
       serviceConfig = hardened // stateDirConfig // (if loader.network then onlineNet else offlineNet) // {
         Type = "oneshot";
@@ -340,16 +343,30 @@ in
       warehousePython
     ];
 
-    # Layout. inbox/health is owned by sam, the writer. Mode 3750 is
-    # setgid, sticky, owner rwx, group rx. New files inherit group
-    # warehouse, so a 0640 file sam creates is readable by the loader.
-    # The loader does not need write access.
+    # Layout. inbox/ is root:warehouse 0750 so the warehouse user cannot
+    # rename or replace inbox/health. inbox/health is owned by sam, the
+    # writer. Mode 3750 is setgid, sticky, owner rwx, group rx. New files
+    # inherit group warehouse, so a 0640 file sam creates is readable by
+    # the loader. The loader does not need write access.
     # raw/ stays 0750. UMask=0027 on the units makes new files 0640.
+    #
+    # tmpfiles will not create health/ while walking from the
+    # warehouse-owned data dir into the root-owned inbox (unsafe path
+    # transition). Activation, running as root after users exist, creates
+    # that directory.
+    system.activationScripts.warehouseInbox = {
+      deps = [ "users" ];
+      text = ''
+        ${pkgs.coreutils}/bin/install -d -o root -g warehouse -m 0750 ${cfg.dataDir}/inbox
+        ${pkgs.coreutils}/bin/install -d -o sam -g warehouse -m 3750 ${cfg.dataDir}/inbox/health
+      '';
+    };
+
     systemd.tmpfiles.rules = [
       "d ${cfg.dataDir} 0750 warehouse warehouse - -"
       "d ${cfg.dataDir}/raw 0750 warehouse warehouse - -"
       "d ${cfg.dataDir}/raw/health 0750 warehouse warehouse - -"
-      "d ${cfg.dataDir}/inbox 0750 warehouse warehouse - -"
+      "d ${cfg.dataDir}/inbox 0750 root warehouse - -"
       "d ${cfg.dataDir}/inbox/health 3750 sam warehouse - -"
       "d ${cfg.dataDir}/dbt 0750 warehouse warehouse - -"
       "d ${cfg.dataDir}/dbt/target 0750 warehouse warehouse - -"

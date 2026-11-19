@@ -5,6 +5,7 @@
 //! `dt` is the America/Chicago calendar date of `recorded_at`.
 
 use std::collections::BTreeMap;
+use std::ffi::CString;
 use std::fs::{self, File, OpenOptions};
 use std::io::{self, Read, Seek, SeekFrom, Write};
 use std::os::unix::fs::{DirBuilderExt, MetadataExt, OpenOptionsExt};
@@ -69,6 +70,10 @@ pub struct LoadConfig {
     pub sqlite_path: PathBuf,
     pub raw_root: PathBuf,
     pub source: String,
+    /// Required owner of `data.db`. `None` means the current process uid,
+    /// which is what cargo tests and a manual run use. The unit sets
+    /// `WAREHOUSE_WRITER_USER` so this is sam's uid, not the loader uid.
+    pub writer_uid: Option<u32>,
 }
 
 impl LoadConfig {
@@ -94,13 +99,43 @@ impl LoadConfig {
             .or_else(|| std::env::var("WAREHOUSE_SOURCE").ok())
             .unwrap_or_else(|| SOURCE_DEFAULT.to_string());
 
+        let writer_uid = match std::env::var("WAREHOUSE_WRITER_UID") {
+            Ok(raw) => Some(raw.parse::<u32>().map_err(|_| {
+                LoadError::new(format!(
+                    "WAREHOUSE_WRITER_UID must be a numeric uid, got {raw}"
+                ))
+            })?),
+            Err(_) => match std::env::var("WAREHOUSE_WRITER_USER") {
+                Ok(name) => Some(lookup_user_uid(&name)?),
+                Err(_) => None,
+            },
+        };
+
         reject_unknown_flags(args)?;
         Ok(Self {
             sqlite_path,
             raw_root,
             source,
+            writer_uid,
         })
     }
+}
+
+fn lookup_user_uid(name: &str) -> LoadResult<u32> {
+    let c_name = CString::new(name).map_err(|_| {
+        LoadError::new(format!("writer user {name} is not a valid account name"))
+    })?;
+    let entry = unsafe { libc::getpwnam(c_name.as_ptr()) };
+    if entry.is_null() {
+        return Err(LoadError::new(format!(
+            "writer user {name} was not found (WAREHOUSE_WRITER_USER)"
+        )));
+    }
+    Ok(unsafe { (*entry).pw_uid })
+}
+
+fn current_uid() -> u32 {
+    unsafe { libc::geteuid() }
 }
 
 fn take_flag(args: &[String], name: &str) -> LoadResult<Option<String>> {
@@ -168,8 +203,9 @@ struct MetricRow {
 /// already present under `raw_root` is replaced or removed.
 pub fn load(config: &LoadConfig) -> LoadResult<LoadReport> {
     validate_source_name(&config.source)?;
-    let sqlite_path = require_sqlite(&config.sqlite_path)?;
-    let rows = read_metrics(&sqlite_path)?;
+    let writer_uid = config.writer_uid.unwrap_or_else(current_uid);
+    let sqlite_path = require_sqlite(&config.sqlite_path, writer_uid)?;
+    let rows = read_metrics(&sqlite_path, writer_uid)?;
     let run_id = new_run_id()?;
     let loaded_at = Utc::now();
 
@@ -318,7 +354,7 @@ fn lexical_absolute(path: &Path) -> PathBuf {
 /// still the same inode. Callers copy bytes from this fd. They do not
 /// hand the path, or `/proc/self/fd/N`, to SQLite: bundled SQLite resolves
 /// that link and opens the name again.
-fn open_inbox_file(path: &Path) -> LoadResult<File> {
+fn open_inbox_file(path: &Path, writer_uid: u32) -> LoadResult<File> {
     let listed = match fs::symlink_metadata(path) {
         Ok(meta) => meta,
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
@@ -362,9 +398,6 @@ fn open_inbox_file(path: &Path) -> LoadResult<File> {
             path.display()
         )));
     }
-    // The writer (sam) owns the snapshot. The loader only checks that the
-    // fd is still that directory entry, including the same uid. A
-    // warehouse-group mode 0640 file is readable by this process.
     if opened.dev() != listed.dev()
         || opened.ino() != listed.ino()
         || opened.uid() != listed.uid()
@@ -374,11 +407,32 @@ fn open_inbox_file(path: &Path) -> LoadResult<File> {
             path.display()
         )));
     }
+    if opened.uid() != writer_uid {
+        return Err(LoadError::new(format!(
+            "refusing {} owned by uid {} (writer uid is {writer_uid})",
+            path.display(),
+            opened.uid()
+        )));
+    }
+    let mode = opened.mode() & 0o777;
+    if mode & 0o022 != 0 {
+        return Err(LoadError::new(format!(
+            "refusing {} mode {mode:o} (group or other writable)",
+            path.display()
+        )));
+    }
+    if opened.nlink() != 1 {
+        return Err(LoadError::new(format!(
+            "refusing {} with {} links (data.db must not be a hard link)",
+            path.display(),
+            opened.nlink()
+        )));
+    }
     Ok(file)
 }
 
-fn require_sqlite(path: &Path) -> LoadResult<PathBuf> {
-    let _file = open_inbox_file(path)?;
+fn require_sqlite(path: &Path, writer_uid: u32) -> LoadResult<PathBuf> {
+    let _file = open_inbox_file(path, writer_uid)?;
     Ok(lexical_absolute(path))
 }
 
@@ -635,10 +689,10 @@ fn refuse_sidecars(db: &Path) -> LoadResult<()> {
 /// The inbox entry is one rollback-journal database. Dotfiles, including a
 /// writer's `.data.db.*.tmp`, are not opened and are not deleted. SQLite
 /// never opens the inbox path.
-fn snapshot_sqlite(db: &Path) -> LoadResult<SqliteSnapshot> {
+fn snapshot_sqlite(db: &Path, writer_uid: u32) -> LoadResult<SqliteSnapshot> {
     sweep_runtime_snapshots();
     refuse_sidecars(db)?;
-    let mut db_file = open_inbox_file(db)?;
+    let mut db_file = open_inbox_file(db, writer_uid)?;
     let before = stamp_of(&db_file.metadata().map_err(|e| {
         LoadError::new(format!("fstat {}: {e}", db.display()))
     })?);
@@ -668,8 +722,8 @@ fn snapshot_sqlite(db: &Path) -> LoadResult<SqliteSnapshot> {
     Ok(snapshot)
 }
 
-fn read_metrics(path: &Path) -> LoadResult<Vec<MetricRow>> {
-    let snapshot = snapshot_sqlite(path)?;
+fn read_metrics(path: &Path, writer_uid: u32) -> LoadResult<Vec<MetricRow>> {
+    let snapshot = snapshot_sqlite(path, writer_uid)?;
     let conn = open_private_copy(&snapshot.db_path).map_err(|e| {
         LoadError::new(format!(
             "open private copy of {} read-only: {e}",
@@ -1089,6 +1143,7 @@ mod tests {
             sqlite_path: sqlite.clone(),
             raw_root: raw.clone(),
             source: "health".into(),
+            writer_uid: None,
         };
         let before = fs::read(&sqlite).unwrap();
         let first = load(&config).unwrap();
@@ -1178,6 +1233,7 @@ mod tests {
             sqlite_path: path,
             raw_root: tmp.join("raw"),
             source: "health".into(),
+            writer_uid: None,
         })
         .unwrap_err();
         assert!(err.to_string().contains("not finite"), "{err}");
@@ -1205,6 +1261,7 @@ mod tests {
             sqlite_path: path,
             raw_root: tmp.join("raw"),
             source: "health".into(),
+            writer_uid: None,
         })
         .unwrap_err();
         assert!(err.to_string().contains("missing columns"), "{err}");
@@ -1247,6 +1304,7 @@ mod tests {
             sqlite_path: path,
             raw_root: tmp.join("raw"),
             source: "health".into(),
+            writer_uid: None,
         })
         .unwrap();
         assert_eq!(report.rows, 2);
@@ -1303,6 +1361,7 @@ mod tests {
             sqlite_path: link,
             raw_root: tmp.join("raw"),
             source: "health".into(),
+            writer_uid: None,
         })
         .unwrap_err();
         assert!(err.to_string().contains("symlink"), "{err}");
@@ -1375,6 +1434,7 @@ mod tests {
                 sqlite_path: inbox_db.clone(),
                 raw_root: raw.to_path_buf(),
                 source: "health".into(),
+                writer_uid: None,
             }) {
                 Ok(report) => {
                     assert!(!report.files.is_empty());
@@ -1461,6 +1521,7 @@ mod tests {
             sqlite_path: link,
             raw_root: tmp.join("raw"),
             source: "health".into(),
+            writer_uid: None,
         })
         .unwrap_err();
         assert!(err.to_string().contains("symlink"), "{err}");
@@ -1474,6 +1535,7 @@ mod tests {
             sqlite_path: tmp.join("missing.db"),
             raw_root: tmp.join("raw"),
             source: "health".into(),
+            writer_uid: None,
         })
         .unwrap_err();
         assert!(err.to_string().contains("not found"), "{err}");
@@ -1487,6 +1549,7 @@ mod tests {
             sqlite_path: sqlite,
             raw_root: tmp.join("raw"),
             source: "../raw".into(),
+            writer_uid: None,
         })
         .unwrap_err();
         assert!(err.to_string().contains("source name"), "{err}");
@@ -1521,6 +1584,7 @@ mod tests {
                 sqlite_path: path.clone(),
                 raw_root: tmp.join(format!("raw-{n}")),
                 source: "health".into(),
+                writer_uid: None,
             })
             .unwrap();
             assert_eq!(report.rows, 1);
@@ -1556,6 +1620,7 @@ mod tests {
             sqlite_path: path,
             raw_root: tmp.join("raw"),
             source: "health".into(),
+            writer_uid: None,
         })
         .unwrap_err();
         assert!(err.to_string().contains("rollback-journal"), "{err}");
@@ -1575,6 +1640,7 @@ mod tests {
                 sqlite_path: path,
                 raw_root: tmp.join("raw"),
                 source: "health".into(),
+                writer_uid: None,
             })
             .unwrap_err();
             assert!(err.to_string().contains("sidecar"), "{suffix}: {err}");
@@ -1597,6 +1663,7 @@ mod tests {
             sqlite_path: path,
             raw_root: tmp.join("raw"),
             source: "health".into(),
+            writer_uid: None,
         })
         .unwrap_err();
         let msg = err.to_string();
@@ -1605,6 +1672,49 @@ mod tests {
             "{msg}"
         );
         assert_eq!(dir_parquet_count(&tmp.join("raw")), 0);
+    }
+
+    #[test]
+    fn refuses_wrong_owner_writable_mode_and_hard_link() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let tmp = tempfile_dir();
+        let path = fixture(&tmp, &[sample_row()]);
+        let err = load(&LoadConfig {
+            sqlite_path: path.clone(),
+            raw_root: tmp.join("raw-uid"),
+            source: "health".into(),
+            writer_uid: Some(1),
+        })
+        .unwrap_err();
+        assert!(err.to_string().contains("writer uid"), "{err}");
+        assert_eq!(dir_parquet_count(&tmp.join("raw-uid")), 0);
+
+        let mut perms = fs::metadata(&path).unwrap().permissions();
+        perms.set_mode(0o666);
+        fs::set_permissions(&path, perms.clone()).unwrap();
+        let err = load(&LoadConfig {
+            sqlite_path: path.clone(),
+            raw_root: tmp.join("raw-mode"),
+            source: "health".into(),
+            writer_uid: None,
+        })
+        .unwrap_err();
+        assert!(err.to_string().contains("writable"), "{err}");
+        assert_eq!(dir_parquet_count(&tmp.join("raw-mode")), 0);
+
+        perms.set_mode(0o640);
+        fs::set_permissions(&path, perms).unwrap();
+        fs::hard_link(&path, tmp.join("data-link.db")).unwrap();
+        let err = load(&LoadConfig {
+            sqlite_path: path,
+            raw_root: tmp.join("raw-link"),
+            source: "health".into(),
+            writer_uid: None,
+        })
+        .unwrap_err();
+        assert!(err.to_string().contains("hard link"), "{err}");
+        assert_eq!(dir_parquet_count(&tmp.join("raw-link")), 0);
     }
 
     #[test]

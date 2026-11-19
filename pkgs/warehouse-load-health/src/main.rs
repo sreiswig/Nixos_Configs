@@ -24,7 +24,9 @@ file, or a data.db-wal, data.db-shm, or data.db-journal beside it, is
 refused. Dotfiles in the inbox are ignored.
 
 Environment: WAREHOUSE_SQLITE_PATH, WAREHOUSE_RAW_ROOT, WAREHOUSE_SOURCE,
-WAREHOUSE_DATA_DIR.
+WAREHOUSE_DATA_DIR, WAREHOUSE_WRITER_USER (or WAREHOUSE_WRITER_UID).
+The snapshot must be owned by that user, mode not group or other
+writable, and not a hard link.
 Flags win over environment variables.
 "
         );

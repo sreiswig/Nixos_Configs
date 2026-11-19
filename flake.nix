@@ -122,6 +122,10 @@
             machine.succeed("test \"$(systemctl show -p Result --value restic-backups-warehouse.service)\" = exec-condition")
             machine.succeed("test \"$(systemctl show -p Result --value warehouse-restic-check.service)\" = exec-condition")
 
+            # Parent inbox/ is root:warehouse 0750. The warehouse user cannot
+            # rename inbox/health. health/ stays 3750 sam:warehouse.
+            machine.succeed("stat -c '%a %U %G' /var/lib/warehouse/inbox | grep -qx '750 root warehouse'")
+            machine.succeed("stat -c '%a %U %G' /var/lib/warehouse/inbox/health | grep -qx '3750 sam warehouse'")
             machine.succeed("install -d -o sam -g warehouse -m 3750 /var/lib/warehouse/inbox/health")
             machine.succeed(
                 "sqlite3 /var/lib/warehouse/inbox/health/data.db "
@@ -350,6 +354,23 @@
                 ids=$(duckdb -csv -c "select distinct id from read_parquet('/var/lib/warehouse/raw/health/**/*.parquet')")
                 printf '%s\n' "$ids" | grep -qx 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'
                 printf '%s\n' "$ids" | grep -qx 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb'
+                chmod 0660 "$inbox/data.db"
+                systemctl reset-failed warehouse-load-health.service || true
+                if systemctl start warehouse-load-health.service; then
+                  echo "group-writable snapshot was accepted"
+                  exit 1
+                fi
+                journalctl -u warehouse-load-health.service --no-pager | grep -F 'writable'
+                chmod 0640 "$inbox/data.db"
+                ln "$inbox/data.db" "$inbox/data.db.hard"
+                systemctl reset-failed warehouse-load-health.service || true
+                if systemctl start warehouse-load-health.service; then
+                  echo "hardlinked snapshot was accepted"
+                  exit 1
+                fi
+                journalctl -u warehouse-load-health.service --no-pager | grep -F 'hard link'
+                rm -f "$inbox/data.db.hard"
+                test "$(ls -A "$inbox" | sort | paste -sd' ' -)" = data.db
                 """
             )
 
@@ -371,7 +392,7 @@
                 install -d -o warehouse -g warehouse -m 0700 "$rt/keep-me"
                 install -d -o warehouse -g warehouse -m 0700 /tmp/wh-sweep-raw
                 before=$(ls -A /var/lib/warehouse/inbox/health | sort)
-                runuser -u warehouse -- env RUNTIME_DIRECTORY="$rt" \
+                runuser -u warehouse -- env RUNTIME_DIRECTORY="$rt" WAREHOUSE_WRITER_USER=sam \
                   warehouse-load-health --sqlite /var/lib/warehouse/inbox/health/data.db \
                   --raw-root /tmp/wh-sweep-raw --source health
                 echo sweep-ran
