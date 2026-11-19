@@ -340,16 +340,17 @@ in
       warehousePython
     ];
 
-    # Layout. inbox/health is owned by sam, the writer. Mode 1750 is
-    # owner rwx, group rx, sticky. The warehouse group can traverse and
-    # read a group-readable snapshot. The loader does not need write access.
+    # Layout. inbox/health is owned by sam, the writer. Mode 3750 is
+    # setgid, sticky, owner rwx, group rx. New files inherit group
+    # warehouse, so a 0640 file sam creates is readable by the loader.
+    # The loader does not need write access.
     # raw/ stays 0750. UMask=0027 on the units makes new files 0640.
     systemd.tmpfiles.rules = [
       "d ${cfg.dataDir} 0750 warehouse warehouse - -"
       "d ${cfg.dataDir}/raw 0750 warehouse warehouse - -"
       "d ${cfg.dataDir}/raw/health 0750 warehouse warehouse - -"
       "d ${cfg.dataDir}/inbox 0750 warehouse warehouse - -"
-      "d ${cfg.dataDir}/inbox/health 1750 sam warehouse - -"
+      "d ${cfg.dataDir}/inbox/health 3750 sam warehouse - -"
       "d ${cfg.dataDir}/dbt 0750 warehouse warehouse - -"
       "d ${cfg.dataDir}/dbt/target 0750 warehouse warehouse - -"
       "d ${cfg.dataDir}/home 0750 warehouse warehouse - -"

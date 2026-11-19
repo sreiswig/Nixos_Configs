@@ -362,6 +362,9 @@ fn open_inbox_file(path: &Path) -> LoadResult<File> {
             path.display()
         )));
     }
+    // The writer (sam) owns the snapshot. The loader only checks that the
+    // fd is still that directory entry, including the same uid. A
+    // warehouse-group mode 0640 file is readable by this process.
     if opened.dev() != listed.dev()
         || opened.ino() != listed.ino()
         || opened.uid() != listed.uid()

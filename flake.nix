@@ -100,7 +100,7 @@
               isNormalUser = true;
               uid = 1000;
             };
-            environment.systemPackages = [ pkgs.sqlite ];
+            environment.systemPackages = [ pkgs.sqlite pkgs.python3 ];
             virtualisation.memorySize = 2048;
             system.stateVersion = "24.11";
           };
@@ -122,7 +122,7 @@
             machine.succeed("test \"$(systemctl show -p Result --value restic-backups-warehouse.service)\" = exec-condition")
             machine.succeed("test \"$(systemctl show -p Result --value warehouse-restic-check.service)\" = exec-condition")
 
-            machine.succeed("install -d -o sam -g warehouse -m 1750 /var/lib/warehouse/inbox/health")
+            machine.succeed("install -d -o sam -g warehouse -m 3750 /var/lib/warehouse/inbox/health")
             machine.succeed(
                 "sqlite3 /var/lib/warehouse/inbox/health/data.db "
                 + "\"CREATE TABLE metrics (id TEXT PRIMARY KEY, kind TEXT NOT NULL, category TEXT NOT NULL, recorded_at TEXT NOT NULL, day TEXT NOT NULL, value REAL NOT NULL, unit TEXT NOT NULL, source TEXT NOT NULL, raw_name TEXT, notes TEXT);\""
@@ -315,6 +315,41 @@
                 test "$rc" -ne 0
                 printf '%s\n' "$out" | grep -F symlink
                 test ! -e /tmp/wh-sym-raw/health
+                """
+            )
+
+            # A groktor-style export runs as sam. Setgid makes the new
+            # data.db group warehouse at mode 0640, and a second rename
+            # replaces the existing file. The loader reads both.
+            machine.succeed(
+                r"""
+                set -eu
+                inbox=/var/lib/warehouse/inbox/health
+                rm -f "$inbox/secret-link.db"
+                stat -c '%a %U %G' "$inbox" | grep -qx '3750 sam warehouse'
+                export_snapshot() {
+                  runuser -u sam -- python3 -c 'import os,sqlite3,sys; inbox,sql=sys.argv[1:]; os.umask(0o027); tmp=os.path.join(inbox,".data.db."+os.urandom(4).hex()+".tmp"); conn=sqlite3.connect(tmp); conn.execute("PRAGMA synchronous=FULL"); conn.executescript(sql); conn.commit(); conn.close(); fd=os.open(tmp,os.O_RDONLY); os.fsync(fd); os.close(fd); dfd=os.open(inbox,os.O_RDONLY); os.fsync(dfd); os.close(dfd); os.replace(tmp, os.path.join(inbox,"data.db"))' "$inbox" "$1"
+                }
+                schema='CREATE TABLE metrics (id TEXT PRIMARY KEY, kind TEXT NOT NULL, category TEXT NOT NULL, recorded_at TEXT NOT NULL, day TEXT NOT NULL, value REAL NOT NULL, unit TEXT NOT NULL, source TEXT NOT NULL, raw_name TEXT, notes TEXT);'
+                export_snapshot "$schema INSERT INTO metrics VALUES ('aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', 'steps', 'activity', '2026-07-22T15:00:00+00:00', '2026-07-22', 11, 'count', 'export', NULL, NULL);"
+                stat -c '%U %G %a' "$inbox/data.db" | grep -qx 'sam warehouse 640'
+                systemctl reset-failed warehouse-load-health.service || true
+                systemctl start warehouse-load-health.service
+                test "$(systemctl show -p Result --value warehouse-load-health.service)" = success
+                journalctl -u warehouse-load-health.service --no-pager | grep -F 'rows=1 files=1'
+                export_snapshot "$schema INSERT INTO metrics VALUES ('aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', 'steps', 'activity', '2026-07-22T15:00:00+00:00', '2026-07-22', 11, 'count', 'export', NULL, NULL); INSERT INTO metrics VALUES ('bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb', 'steps', 'activity', '2026-07-22T16:00:00+00:00', '2026-07-22', 22, 'count', 'export', NULL, NULL);"
+                stat -c '%U %G %a' "$inbox/data.db" | grep -qx 'sam warehouse 640'
+                systemctl reset-failed warehouse-load-health.service || true
+                systemctl start warehouse-load-health.service
+                test "$(systemctl show -p Result --value warehouse-load-health.service)" = success
+                journalctl -u warehouse-load-health.service --no-pager | grep -F 'rows=2 files=1'
+                test "$(ls -A "$inbox" | sort | paste -sd' ' -)" = data.db
+                test ! -e "$inbox/data.db-wal"
+                test ! -e "$inbox/data.db-shm"
+                test ! -e "$inbox/data.db-journal"
+                ids=$(duckdb -csv -c "select distinct id from read_parquet('/var/lib/warehouse/raw/health/**/*.parquet')")
+                printf '%s\n' "$ids" | grep -qx 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'
+                printf '%s\n' "$ids" | grep -qx 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb'
                 """
             )
 
