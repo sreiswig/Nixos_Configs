@@ -821,6 +821,7 @@ dependencies = [
  "chrono",
  "chrono-tz",
  "getrandom 0.2.17",
+ "libc",
  "parquet",
  "rusqlite",
 ]

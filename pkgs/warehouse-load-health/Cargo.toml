@@ -14,3 +14,6 @@ chrono-tz = "0.10"
 getrandom = "0.2"
 parquet = { version = "53.4", default-features = false, features = ["arrow", "snap"] }
 rusqlite = { version = "0.32", features = ["bundled"] }
+
+[dev-dependencies]
+libc = "0.2"

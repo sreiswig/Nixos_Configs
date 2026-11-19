@@ -156,12 +156,13 @@ let
       environment = {
         WAREHOUSE_DATA_DIR = cfg.dataDir;
         HOME = "${cfg.dataDir}/home";
+        WAREHOUSE_INPUT_MODE = loader.inputMode;
       } // loader.environment;
       serviceConfig = hardened // stateDirConfig // (if loader.network then onlineNet else offlineNet) // {
         Type = "oneshot";
         User = "warehouse";
         Group = "warehouse";
-        # Private directory for the SQLite backup snapshot. Removed by
+        # Private directory for the SQLite copy. Removed by
         # systemd when the unit stops, including after SIGKILL.
         # RuntimeDirectoryPreserve is left unset on purpose.
         RuntimeDirectory = "warehouse-load-${name}";
@@ -251,6 +252,20 @@ in
               PrivateNetwork and RestrictAddressFamilies=AF_UNIX.
               Set true for a loader that fetches, such as a future
               AI_Dispatch Postgres reader.
+            '';
+          };
+
+          inputMode = mkOption {
+            type = types.enum [ "wal-copy" "snapshot" ];
+            default = "wal-copy";
+            description = ''
+              How this loader reads its SQLite input. wal-copy (the default)
+              copies data.db and a non-empty data.db-wal into a private
+              directory and opens only that copy. An inbox -shm is not read
+              and is not copied. snapshot copies one rollback-journal file
+              and opens it with immutable=1, and refuses a -wal, -shm, or
+              -journal beside it. personal_groktor is not changed to produce
+              that file. The value is passed as WAREHOUSE_INPUT_MODE.
             '';
           };
         };

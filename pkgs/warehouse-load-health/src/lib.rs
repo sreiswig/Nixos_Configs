@@ -4,7 +4,7 @@
 //! A rerun always uses a new `run_id`. Existing raw files are left in place.
 //! `dt` is the America/Chicago calendar date of `recorded_at`.
 
-use std::collections::{BTreeMap, HashSet};
+use std::collections::BTreeMap;
 use std::fs::{self, File, OpenOptions};
 use std::io::{self, Read, Seek, SeekFrom, Write};
 use std::os::unix::fs::{DirBuilderExt, MetadataExt, OpenOptionsExt};
@@ -13,6 +13,30 @@ use std::sync::Arc;
 
 /// Linux `O_NOFOLLOW`. Opening the inbox must not follow a symlink.
 const O_NOFOLLOW: i32 = 0o400000;
+/// Linux `O_DIRECTORY`.
+const O_DIRECTORY: i32 = 0o200000;
+
+/// How the loader acquires the SQLite file.
+///
+/// `wal-copy` is the default. `snapshot` is the other side of the same seam:
+/// one rollback-journal file, opened `immutable=1`, with any sidecar refused.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum InputMode {
+    WalCopy,
+    Snapshot,
+}
+
+impl InputMode {
+    fn parse(value: &str) -> LoadResult<Self> {
+        match value {
+            "wal-copy" => Ok(Self::WalCopy),
+            "snapshot" => Ok(Self::Snapshot),
+            _ => Err(LoadError::new(
+                "input mode must be wal-copy or snapshot (WAREHOUSE_INPUT_MODE or --input-mode)",
+            )),
+        }
+    }
+}
 
 use arrow_array::{Date32Array, Float64Array, RecordBatch, StringArray, TimestampMicrosecondArray};
 use arrow_schema::{DataType, Field, Schema, TimeUnit};
@@ -67,6 +91,7 @@ pub struct LoadConfig {
     pub sqlite_path: PathBuf,
     pub raw_root: PathBuf,
     pub source: String,
+    pub input_mode: InputMode,
 }
 
 impl LoadConfig {
@@ -92,11 +117,17 @@ impl LoadConfig {
             .or_else(|| std::env::var("WAREHOUSE_SOURCE").ok())
             .unwrap_or_else(|| SOURCE_DEFAULT.to_string());
 
+        let input_mode = take_flag(args, "--input-mode")?
+            .or_else(|| std::env::var("WAREHOUSE_INPUT_MODE").ok())
+            .unwrap_or_else(|| "wal-copy".to_string());
+        let input_mode = InputMode::parse(&input_mode)?;
+
         reject_unknown_flags(args)?;
         Ok(Self {
             sqlite_path,
             raw_root,
             source,
+            input_mode,
         })
     }
 }
@@ -112,7 +143,14 @@ fn take_flag(args: &[String], name: &str) -> LoadResult<Option<String>> {
 }
 
 fn reject_unknown_flags(args: &[String]) -> LoadResult<()> {
-    let known = ["--sqlite", "--raw-root", "--source", "--data-dir", "--help"];
+    let known = [
+        "--sqlite",
+        "--raw-root",
+        "--source",
+        "--data-dir",
+        "--input-mode",
+        "--help",
+    ];
     let mut i = 0;
     while i < args.len() {
         let arg = &args[i];
@@ -161,7 +199,7 @@ struct MetricRow {
 pub fn load(config: &LoadConfig) -> LoadResult<LoadReport> {
     validate_source_name(&config.source)?;
     let sqlite_path = require_sqlite(&config.sqlite_path)?;
-    let rows = read_metrics(&sqlite_path)?;
+    let rows = read_metrics(&sqlite_path, config.input_mode)?;
     let run_id = new_run_id()?;
     let loaded_at = Utc::now();
 
@@ -418,9 +456,14 @@ fn copy_fd_to(mut src: &File, dest: &Path) -> LoadResult<()> {
 }
 
 /// Remove leftover snapshot directories in the systemd runtime dir.
+///
 /// SIGKILL cannot run Drop. systemd deletes the runtime dir when the unit
 /// stops; this covers a retry that starts before that removal, and only when
 /// RUNTIME_DIRECTORY is set so parallel tests do not share the sweep.
+///
+/// A name match is not enough. The entry has to be a direct child, a real
+/// directory (lstat, then O_NOFOLLOW), and owned by this process. A symlink
+/// or another user's directory is left in place.
 fn sweep_runtime_snapshots() {
     let raw = match std::env::var_os("RUNTIME_DIRECTORY") {
         Some(raw) => raw,
@@ -433,15 +476,59 @@ fn sweep_runtime_snapshots() {
     if first.is_empty() {
         return;
     }
-    let Ok(entries) = fs::read_dir(first) else {
+    sweep_owned_snapshots(Path::new(first));
+}
+
+fn loader_uid() -> u32 {
+    fs::metadata("/proc/self")
+        .map(|meta| meta.uid())
+        .unwrap_or(u32::MAX)
+}
+
+fn sweep_owned_snapshots(base: &Path) {
+    let uid = loader_uid();
+    let Ok(entries) = fs::read_dir(base) else {
         return;
     };
     for entry in entries.flatten() {
         let name = entry.file_name();
         let name = name.to_string_lossy();
-        if name.starts_with("warehouse-sqlite-") {
-            let _ = fs::remove_dir_all(entry.path());
+        if !name.starts_with("warehouse-sqlite-") {
+            continue;
         }
+        let path = entry.path();
+        if path.parent() != Some(base) {
+            continue;
+        }
+        let Ok(listed) = fs::symlink_metadata(&path) else {
+            continue;
+        };
+        if listed.file_type().is_symlink() || !listed.file_type().is_dir() {
+            continue;
+        }
+        if listed.uid() != uid {
+            continue;
+        }
+        let Ok(opened) = OpenOptions::new()
+            .read(true)
+            .custom_flags(O_NOFOLLOW | O_DIRECTORY)
+            .open(&path)
+        else {
+            continue;
+        };
+        let Ok(now) = opened.metadata() else {
+            continue;
+        };
+        if now.file_type().is_symlink()
+            || !now.is_dir()
+            || now.uid() != uid
+            || now.dev() != listed.dev()
+            || now.ino() != listed.ino()
+        {
+            continue;
+        }
+        drop(opened);
+        let _ = fs::remove_dir_all(&path);
     }
 }
 
@@ -611,40 +698,39 @@ fn validate_wal_frames(path: &Path, db_page_size: u32) -> LoadResult<()> {
     Ok(())
 }
 
-fn checkpoint_rows(path: &Path) -> LoadResult<HashSet<(String, u64, String)>> {
-    let conn = Connection::open_with_flags(path, OpenFlags::SQLITE_OPEN_READ_ONLY).map_err(|e| {
-        LoadError::new(format!(
-            "open checkpointed copy {}: {e}",
-            path.display()
-        ))
-    })?;
-    let mut stmt = conn
-        .prepare("SELECT id, value, source FROM metrics")
-        .map_err(|e| {
-            LoadError::new(format!(
-                "wal does not belong to this database: checkpointed file has no metrics table ({e})"
-            ))
-        })?;
-    let rows = stmt
-        .query_map([], |row| {
-            Ok((
-                row.get::<_, String>(0)?,
-                row.get::<_, f64>(1)?.to_bits(),
-                row.get::<_, String>(2)?,
-            ))
-        })
-        .map_err(|e| LoadError::new(format!("read checkpointed rows: {e}")))?;
-    let mut out = HashSet::new();
-    for row in rows {
-        out.insert(row.map_err(|e| LoadError::new(format!("read checkpointed row: {e}")))?);
+fn sqlite_uri(path: &Path, query: &str) -> String {
+    let text = path.to_string_lossy();
+    let mut encoded = String::from("file:");
+    for b in text.bytes() {
+        match b {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'/' | b'.' | b'_' | b'-' => {
+                encoded.push(b as char);
+            }
+            _ => encoded.push_str(&format!("%{b:02X}")),
+        }
     }
-    Ok(out)
+    encoded.push('?');
+    encoded.push_str(query);
+    encoded
 }
 
-fn snapshot_rows(path: &Path) -> LoadResult<HashSet<(String, u64, String)>> {
-    let conn = Connection::open_with_flags(path, OpenFlags::SQLITE_OPEN_READ_ONLY).map_err(|e| {
-        LoadError::new(format!("reopen snapshot: {e}"))
-    })?;
+fn open_private_copy(path: &Path, mode: InputMode) -> LoadResult<Connection> {
+    match mode {
+        InputMode::WalCopy => Connection::open_with_flags(path, OpenFlags::SQLITE_OPEN_READ_ONLY)
+            .map_err(|e| LoadError::new(format!("open private copy: {e}"))),
+        InputMode::Snapshot => {
+            let uri = sqlite_uri(path, "immutable=1");
+            Connection::open_with_flags(
+                &uri,
+                OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_URI,
+            )
+            .map_err(|e| LoadError::new(format!("open immutable snapshot: {e}")))
+        }
+    }
+}
+
+fn require_integrity(path: &Path, mode: InputMode) -> LoadResult<()> {
+    let conn = open_private_copy(path, mode)?;
     let _version: i64 = conn
         .query_row("PRAGMA schema_version", [], |row| row.get(0))
         .map_err(|e| LoadError::new(format!("schema_version: {e}")))?;
@@ -662,43 +748,45 @@ fn snapshot_rows(path: &Path) -> LoadResult<HashSet<(String, u64, String)>> {
             LoadError::new(format!("integrity_check: {e}"))
         })?);
     }
-    drop(query);
-    drop(check);
     if messages.as_slice() != ["ok"] {
         return Err(LoadError::new(format!(
             "integrity_check failed: {}",
             messages.join("; ")
         )));
     }
-    let mut stmt = conn
-        .prepare("SELECT id, value, source FROM metrics")
-        .map_err(|e| LoadError::new(format!("read snapshot metrics: {e}")))?;
-    let rows = stmt
-        .query_map([], |row| {
-            Ok((
-                row.get::<_, String>(0)?,
-                row.get::<_, f64>(1)?.to_bits(),
-                row.get::<_, String>(2)?,
-            ))
-        })
-        .map_err(|e| LoadError::new(format!("read snapshot rows: {e}")))?;
-    let mut out = HashSet::new();
-    for row in rows {
-        out.insert(row.map_err(|e| LoadError::new(format!("read snapshot row: {e}")))?);
+    Ok(())
+}
+
+fn refuse_snapshot_sidecars(db: &Path) -> LoadResult<()> {
+    for suffix in ["-wal", "-shm", "-journal"] {
+        let path = sidecar_path(db, suffix);
+        match fs::symlink_metadata(&path) {
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+            Err(e) => {
+                return Err(LoadError::new(format!("stat {}: {e}", path.display())));
+            }
+            Ok(_) => {
+                return Err(LoadError::new(format!(
+                    "snapshot mode refuses sidecar {} (deliver one rollback-journal file)",
+                    path.display()
+                )));
+            }
+        }
     }
-    Ok(out)
+    Ok(())
 }
 
 /// Copy the verified inbox files, then open only that private copy.
 ///
-/// A missing or zero-length -wal is not a wal. SQLite never opens the inbox,
-/// so it cannot create -wal or -shm there. The loader does not need write
-/// access to the inbox.
-fn snapshot_sqlite(db: &Path) -> LoadResult<SqliteSnapshot> {
+/// `wal-copy` copies `data.db` and a non-empty `-wal`. A missing or
+/// zero-length `-wal` means there is no wal. An inbox `-shm` is not opened
+/// and not copied. `snapshot` copies only `data.db` and refuses any sidecar.
+/// SQLite never opens the inbox, so it cannot create `-wal` or `-shm` there.
+fn snapshot_sqlite(db: &Path, mode: InputMode) -> LoadResult<SqliteSnapshot> {
     sweep_runtime_snapshots();
     let mut why = String::from("inbox changed during copy");
     for _ in 0..8 {
-        match snapshot_once(db) {
+        match snapshot_once(db, mode) {
             Ok(snapshot) => return Ok(snapshot),
             Err(SnapFail::Changed(message)) => why = message,
             Err(SnapFail::Fatal(err)) => return Err(err),
@@ -709,7 +797,10 @@ fn snapshot_sqlite(db: &Path) -> LoadResult<SqliteSnapshot> {
     )))
 }
 
-fn snapshot_once(db: &Path) -> Result<SqliteSnapshot, SnapFail> {
+fn snapshot_once(db: &Path, mode: InputMode) -> Result<SqliteSnapshot, SnapFail> {
+    if mode == InputMode::Snapshot {
+        refuse_snapshot_sidecars(db).map_err(SnapFail::Fatal)?;
+    }
     let mut db_file = open_inbox_file(db).map_err(SnapFail::Fatal)?;
     let db_stamp = stamp_of(&db_file.metadata().map_err(|e| {
         SnapFail::Fatal(LoadError::new(format!("fstat {}: {e}", db.display())))
@@ -720,7 +811,10 @@ fn snapshot_once(db: &Path) -> Result<SqliteSnapshot, SnapFail> {
     let page_size = read_db_page_size(&mut db_file).map_err(SnapFail::Fatal)?;
 
     let wal_path = sidecar_path(db, "-wal");
-    let wal_file = match fs::symlink_metadata(&wal_path) {
+    let wal_file = if mode == InputMode::Snapshot {
+        None
+    } else {
+        match fs::symlink_metadata(&wal_path) {
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => None,
         Err(e) => {
             return Err(SnapFail::Fatal(LoadError::new(format!(
@@ -753,6 +847,7 @@ fn snapshot_once(db: &Path) -> Result<SqliteSnapshot, SnapFail> {
                 Some(open_inbox_file(&wal_path).map_err(SnapFail::Fatal)?)
             }
         }
+        }
     };
     let wal_stamp = match &wal_file {
         Some(file) => Some(stamp_of(&file.metadata().map_err(|e| {
@@ -773,8 +868,6 @@ fn snapshot_once(db: &Path) -> Result<SqliteSnapshot, SnapFail> {
         dir,
     };
     copy_fd_to(&db_file, &snapshot.db_path).map_err(SnapFail::Fatal)?;
-    let checkpoint_path = snapshot.dir.join("checkpoint.db");
-    copy_fd_to(&db_file, &checkpoint_path).map_err(SnapFail::Fatal)?;
     if let Some(file) = wal_file.as_ref() {
         copy_fd_to(file, &sidecar_path(&snapshot.db_path, "-wal")).map_err(SnapFail::Fatal)?;
     }
@@ -795,33 +888,39 @@ fn snapshot_once(db: &Path) -> Result<SqliteSnapshot, SnapFail> {
             "database inode, size, or timestamps changed during copy".into(),
         ));
     }
-    match (&wal_file, &wal_stamp, fs::symlink_metadata(&wal_path)) {
-        (None, None, Err(e)) if e.kind() == std::io::ErrorKind::NotFound => {}
-        (None, None, Ok(meta)) if meta.file_type().is_file() && meta.len() == 0 => {}
-        (None, None, Ok(_)) => {
-            return Err(SnapFail::Changed(
-                "wal appeared or changed during copy".into(),
-            ));
+    if mode == InputMode::Snapshot {
+        if let Err(err) = refuse_snapshot_sidecars(db) {
+            return Err(SnapFail::Changed(err.to_string()));
         }
-        (Some(file), Some(before), Ok(meta)) => {
-            if meta.file_type().is_symlink() || !meta.file_type().is_file() {
+    } else {
+        match (&wal_file, &wal_stamp, fs::symlink_metadata(&wal_path)) {
+            (None, None, Err(e)) if e.kind() == std::io::ErrorKind::NotFound => {}
+            (None, None, Ok(meta)) if meta.file_type().is_file() && meta.len() == 0 => {}
+            (None, None, Ok(_)) => {
                 return Err(SnapFail::Changed(
-                    "wal changed to a non-regular file during copy".into(),
+                    "wal appeared or changed during copy".into(),
                 ));
             }
-            let fd_now = stamp_of(&file.metadata().map_err(|e| {
-                SnapFail::Fatal(LoadError::new(format!("fstat {}: {e}", wal_path.display())))
-            })?);
-            if !stamps_match(before, &fd_now) || !stamps_match(before, &stamp_of(&meta)) {
+            (Some(file), Some(before), Ok(meta)) => {
+                if meta.file_type().is_symlink() || !meta.file_type().is_file() {
+                    return Err(SnapFail::Changed(
+                        "wal changed to a non-regular file during copy".into(),
+                    ));
+                }
+                let fd_now = stamp_of(&file.metadata().map_err(|e| {
+                    SnapFail::Fatal(LoadError::new(format!("fstat {}: {e}", wal_path.display())))
+                })?);
+                if !stamps_match(before, &fd_now) || !stamps_match(before, &stamp_of(&meta)) {
+                    return Err(SnapFail::Changed(
+                        "wal inode, size, or timestamps changed during copy".into(),
+                    ));
+                }
+            }
+            _ => {
                 return Err(SnapFail::Changed(
-                    "wal inode, size, or timestamps changed during copy".into(),
+                    "wal presence changed during copy".into(),
                 ));
             }
-        }
-        _ => {
-            return Err(SnapFail::Changed(
-                "wal presence changed during copy".into(),
-            ));
         }
     }
     drop(db_file);
@@ -830,52 +929,13 @@ fn snapshot_once(db: &Path) -> Result<SqliteSnapshot, SnapFail> {
     if wal_stamp.is_some() {
         validate_wal_frames(&sidecar_path(&snapshot.db_path, "-wal"), page_size)
             .map_err(SnapFail::Fatal)?;
-        let base = checkpoint_rows(&checkpoint_path).map_err(SnapFail::Fatal)?;
-        let snap = snapshot_rows(&snapshot.db_path).map_err(SnapFail::Fatal)?;
-        if !base.is_subset(&snap) {
-            return Err(SnapFail::Fatal(LoadError::new(
-                "wal does not belong to this database: a checkpointed row changed or disappeared",
-            )));
-        }
-    } else {
-        let conn = Connection::open_with_flags(
-            &snapshot.db_path,
-            OpenFlags::SQLITE_OPEN_READ_ONLY,
-        )
-        .map_err(|e| SnapFail::Fatal(LoadError::new(format!("open private copy: {e}"))))?;
-        let _version: i64 = conn
-            .query_row("PRAGMA schema_version", [], |row| row.get(0))
-            .map_err(|e| SnapFail::Fatal(LoadError::new(format!("schema_version: {e}"))))?;
-        let mut check = conn.prepare("PRAGMA integrity_check").map_err(|e| {
-            SnapFail::Fatal(LoadError::new(format!("integrity_check prepare: {e}")))
-        })?;
-        let mut messages = Vec::new();
-        let mut query = check.query([]).map_err(|e| {
-            SnapFail::Fatal(LoadError::new(format!("integrity_check: {e}")))
-        })?;
-        while let Some(row) = query.next().map_err(|e| {
-            SnapFail::Fatal(LoadError::new(format!("integrity_check: {e}")))
-        })? {
-            messages.push(row.get::<_, String>(0).map_err(|e| {
-                SnapFail::Fatal(LoadError::new(format!("integrity_check: {e}")))
-            })?);
-        }
-        if messages.as_slice() != ["ok"] {
-            return Err(SnapFail::Fatal(LoadError::new(format!(
-                "integrity_check failed: {}",
-                messages.join("; ")
-            ))));
-        }
     }
+    require_integrity(&snapshot.db_path, mode).map_err(SnapFail::Fatal)?;
     Ok(snapshot)
 }
-fn read_metrics(path: &Path) -> LoadResult<Vec<MetricRow>> {
-    let snapshot = snapshot_sqlite(path)?;
-    let conn = Connection::open_with_flags(
-        &snapshot.db_path,
-        OpenFlags::SQLITE_OPEN_READ_ONLY,
-    )
-    .map_err(|e| {
+fn read_metrics(path: &Path, mode: InputMode) -> LoadResult<Vec<MetricRow>> {
+    let snapshot = snapshot_sqlite(path, mode)?;
+    let conn = open_private_copy(&snapshot.db_path, mode).map_err(|e| {
         LoadError::new(format!(
             "open private copy of {} read-only: {e}",
             path.display()
@@ -1229,6 +1289,7 @@ mod tests {
     use super::*;
     use parquet::arrow::arrow_reader::ParquetRecordBatchReaderBuilder;
     use rusqlite::params;
+    use std::os::unix::io::AsRawFd;
 
     fn fixture(dir: &Path, rows: &[(&str, &str, &str, &str, &str, f64, &str, &str)]) -> PathBuf {
         let path = dir.join("data.db");
@@ -1294,6 +1355,7 @@ mod tests {
             sqlite_path: sqlite.clone(),
             raw_root: raw.clone(),
             source: "health".into(),
+            input_mode: InputMode::WalCopy,
         };
         let before = fs::read(&sqlite).unwrap();
         let first = load(&config).unwrap();
@@ -1383,6 +1445,7 @@ mod tests {
             sqlite_path: path,
             raw_root: tmp.join("raw"),
             source: "health".into(),
+            input_mode: InputMode::WalCopy,
         })
         .unwrap_err();
         assert!(err.to_string().contains("not finite"), "{err}");
@@ -1410,6 +1473,7 @@ mod tests {
             sqlite_path: path,
             raw_root: tmp.join("raw"),
             source: "health".into(),
+            input_mode: InputMode::WalCopy,
         })
         .unwrap_err();
         assert!(err.to_string().contains("missing columns"), "{err}");
@@ -1452,6 +1516,7 @@ mod tests {
             sqlite_path: path,
             raw_root: tmp.join("raw"),
             source: "health".into(),
+            input_mode: InputMode::WalCopy,
         })
         .unwrap();
         assert_eq!(report.rows, 2);
@@ -1508,6 +1573,7 @@ mod tests {
             sqlite_path: link,
             raw_root: tmp.join("raw"),
             source: "health".into(),
+            input_mode: InputMode::WalCopy,
         })
         .unwrap_err();
         assert!(err.to_string().contains("symlink"), "{err}");
@@ -1574,6 +1640,7 @@ mod tests {
             sqlite_path: path,
             raw_root: tmp.join("raw"),
             source: "health".into(),
+            input_mode: InputMode::WalCopy,
         })
         .unwrap();
         drop(conn);
@@ -1644,6 +1711,7 @@ mod tests {
             sqlite_path: db,
             raw_root: tmp.join("raw"),
             source: "health".into(),
+            input_mode: InputMode::WalCopy,
         }) {
             Err(err) => {
                 let msg = err.to_string();
@@ -1689,7 +1757,7 @@ mod tests {
     }
 
     #[test]
-    fn foreign_wal_is_not_published() {
+    fn checksum_valid_foreign_wal_is_a_writer_change() {
         let tmp = tempfile_dir();
         let own_path = tmp.join("own.db");
         let own = Connection::open(&own_path).unwrap();
@@ -1714,14 +1782,18 @@ mod tests {
         fs::copy(sidecar_path(&foreign_path, "-wal"), sidecar_path(&db, "-wal")).unwrap();
         drop(foreign);
 
-        let err = load(&LoadConfig {
-            sqlite_path: db,
+        let before = fs::read(&db).unwrap();
+        let report = load(&LoadConfig {
+            sqlite_path: db.clone(),
             raw_root: tmp.join("raw"),
             source: "health".into(),
+            input_mode: InputMode::WalCopy,
         })
-        .unwrap_err();
-        assert!(err.to_string().contains("belong"), "{err}");
-        assert_eq!(dir_parquet_count(&tmp.join("raw")), 0);
+        .unwrap();
+        assert_eq!(report.rows, 700);
+        assert!(sources_in(&report.files[0]).iter().all(|s| s == "foreign"));
+        assert_eq!(fs::read(&db).unwrap(), before);
+        assert!(!sidecar_path(&db, "-shm").exists());
     }
 
     #[test]
@@ -1741,6 +1813,7 @@ mod tests {
                 sqlite_path: path.clone(),
                 raw_root: tmp.join("raw"),
                 source: "health".into(),
+                input_mode: InputMode::WalCopy,
             })
             .unwrap();
             assert_eq!(report.rows, 4);
@@ -1766,6 +1839,7 @@ mod tests {
             sqlite_path: path.clone(),
             raw_root: tmp.join("raw"),
             source: "health".into(),
+            input_mode: InputMode::WalCopy,
         })
         .unwrap();
         assert_eq!(report.rows, 2);
@@ -1795,17 +1869,21 @@ mod tests {
     }
 
     #[test]
-    fn forged_same_rowid_wal_is_not_published() {
+    fn checksum_valid_rewrite_is_a_writer_change() {
         let tmp = tempfile_dir();
-        let (db, _wal) = value_rewriting_wal(&tmp.join("pair"));
-        let err = load(&LoadConfig {
+        let (db, wal) = value_rewriting_wal(&tmp.join("pair"));
+        let before = fs::read(&wal).unwrap();
+        let report = load(&LoadConfig {
             sqlite_path: db,
             raw_root: tmp.join("raw"),
             source: "health".into(),
+            input_mode: InputMode::WalCopy,
         })
-        .unwrap_err();
-        assert!(err.to_string().contains("belong"), "{err}");
-        assert_eq!(dir_parquet_count(&tmp.join("raw")), 0);
+        .unwrap();
+        assert_eq!(report.rows, 250);
+        assert!(sources_in(&report.files[0]).iter().all(|s| s == "forged"));
+        assert_eq!(fs::read(&wal).unwrap(), before);
+        assert!(!wal.with_file_name("data.db-shm").exists());
     }
 
     #[test]
@@ -1853,12 +1931,13 @@ mod tests {
                 sqlite_path: inbox_db.clone(),
                 raw_root: tmp.join(format!("raw-{n}")),
                 source: "health".into(),
+                input_mode: InputMode::WalCopy,
             }) {
                 for file in &report.files {
                     let sources = sources_in(file);
                     assert!(
-                        sources.iter().all(|s| s == "own"),
-                        "forged wal was published: {sources:?}"
+                        sources.iter().all(|s| s == "own") || sources.iter().all(|s| s == "forged"),
+                        "load mixed two wals: {sources:?}"
                     );
                 }
             }
@@ -1897,12 +1976,13 @@ mod tests {
                 sqlite_path: inbox_db.clone(),
                 raw_root: tmp.join(format!("raw-{n}")),
                 source: "health".into(),
+                input_mode: InputMode::WalCopy,
             }) {
                 for file in &report.files {
                     let sources = sources_in(file);
                     assert!(
-                        sources.iter().all(|s| s == "own"),
-                        "planted wal was published: {sources:?}"
+                        sources.iter().all(|s| s == "own") || sources.iter().all(|s| s == "forged"),
+                        "load mixed a planted wal with the database: {sources:?}"
                     );
                 }
             }
@@ -1932,6 +2012,7 @@ mod tests {
             sqlite_path: path.clone(),
             raw_root: tmp.join("raw-flip"),
             source: "health".into(),
+            input_mode: InputMode::WalCopy,
         })
         .unwrap_err();
         let msg = err.to_string();
@@ -1948,6 +2029,7 @@ mod tests {
             sqlite_path: path,
             raw_root: tmp.join("raw-tail"),
             source: "health".into(),
+            input_mode: InputMode::WalCopy,
         })
         .unwrap_err();
         let msg = err.to_string();
@@ -1959,7 +2041,7 @@ mod tests {
     }
 
     #[test]
-    fn wal_with_no_checkpointed_metrics_table_is_rejected() {
+    fn wal_that_creates_the_metrics_table_loads() {
         let tmp = tempfile_dir();
         let path = tmp.join("data.db");
         let conn = Connection::open(&path).unwrap();
@@ -1979,14 +2061,15 @@ mod tests {
         let db = inbox.join("data.db");
         fs::write(&db, db_bytes).unwrap();
         fs::write(sidecar_path(&db, "-wal"), wal_bytes).unwrap();
-        let err = load(&LoadConfig {
+        let report = load(&LoadConfig {
             sqlite_path: db,
             raw_root: tmp.join("raw"),
             source: "health".into(),
+            input_mode: InputMode::WalCopy,
         })
-        .unwrap_err();
-        assert!(err.to_string().contains("no metrics table"), "{err}");
-        assert_eq!(dir_parquet_count(&tmp.join("raw")), 0);
+        .unwrap();
+        assert_eq!(report.rows, 3);
+        assert!(sources_in(&report.files[0]).iter().all(|s| s == "foreign"));
     }
 
     #[test]
@@ -2023,6 +2106,7 @@ mod tests {
                 sqlite_path: db.clone(),
                 raw_root: tmp.join(format!("raw-{n}")),
                 source: "health".into(),
+                input_mode: InputMode::WalCopy,
             }) {
                 Ok(report) => {
                     assert_eq!(report.files.len(), 1);
@@ -2073,6 +2157,7 @@ mod tests {
             sqlite_path: path,
             raw_root: tmp.join("raw"),
             source: "health".into(),
+            input_mode: InputMode::WalCopy,
         })
         .unwrap_err();
         assert!(err.to_string().contains("symlink"), "{err}");
@@ -2089,6 +2174,7 @@ mod tests {
             sqlite_path: path,
             raw_root: tmp.join("raw"),
             source: "health".into(),
+            input_mode: InputMode::WalCopy,
         })
         .unwrap_err();
         assert!(err.to_string().contains("non-regular"), "{err}");
@@ -2140,6 +2226,7 @@ mod tests {
                 sqlite_path: inbox_db.clone(),
                 raw_root: raw.to_path_buf(),
                 source: "health".into(),
+                input_mode: InputMode::WalCopy,
             }) {
                 Ok(report) => {
                     assert!(!report.files.is_empty());
@@ -2226,6 +2313,7 @@ mod tests {
             sqlite_path: link,
             raw_root: tmp.join("raw"),
             source: "health".into(),
+            input_mode: InputMode::WalCopy,
         })
         .unwrap_err();
         assert!(err.to_string().contains("symlink"), "{err}");
@@ -2239,6 +2327,7 @@ mod tests {
             sqlite_path: tmp.join("missing.db"),
             raw_root: tmp.join("raw"),
             source: "health".into(),
+            input_mode: InputMode::WalCopy,
         })
         .unwrap_err();
         assert!(err.to_string().contains("not found"), "{err}");
@@ -2252,9 +2341,272 @@ mod tests {
             sqlite_path: sqlite,
             raw_root: tmp.join("raw"),
             source: "../raw".into(),
+            input_mode: InputMode::WalCopy,
         })
         .unwrap_err();
         assert!(err.to_string().contains("source name"), "{err}");
+    }
+
+    fn inbox_fingerprint(dir: &Path) -> Vec<(String, u64, u64)> {
+        let mut out = Vec::new();
+        for entry in fs::read_dir(dir).unwrap() {
+            let entry = entry.unwrap();
+            let meta = fs::symlink_metadata(entry.path()).unwrap();
+            out.push((
+                entry.file_name().to_string_lossy().into_owned(),
+                meta.ino(),
+                meta.len(),
+            ));
+        }
+        out.sort();
+        out
+    }
+
+    fn parquet_values(file: &Path) -> Vec<i64> {
+        let opened = File::open(file).unwrap();
+        let reader = ParquetRecordBatchReaderBuilder::try_new(opened)
+            .unwrap()
+            .build()
+            .unwrap();
+        let batches: Vec<_> = reader.collect::<Result<Vec<_>, _>>().unwrap();
+        let mut values = Vec::new();
+        for batch in batches {
+            let col = batch
+                .column_by_name("value")
+                .unwrap()
+                .as_any()
+                .downcast_ref::<arrow_array::Float64Array>()
+                .unwrap();
+            for i in 0..batch.num_rows() {
+                values.push(col.value(i) as i64);
+            }
+        }
+        values.sort_unstable();
+        values
+    }
+
+    #[test]
+    fn repeated_loads_create_nothing_in_the_inbox() {
+        let tmp = tempfile_dir();
+        let inbox = tmp.join("inbox");
+        fs::create_dir(&inbox).unwrap();
+        let path = inbox.join("data.db");
+        let conn = Connection::open(&path).unwrap();
+        conn.pragma_update(None, "journal_mode", "WAL").unwrap();
+        metrics_schema(&conn);
+        insert_seq(&conn, 0, 3, "own");
+        conn.execute_batch("PRAGMA wal_checkpoint(TRUNCATE)").unwrap();
+        drop(conn);
+        let _ = fs::remove_file(sidecar_path(&path, "-wal"));
+        let _ = fs::remove_file(sidecar_path(&path, "-shm"));
+        let before = inbox_fingerprint(&inbox);
+        for n in 0..2 {
+            let report = load(&LoadConfig {
+                sqlite_path: path.clone(),
+                raw_root: tmp.join(format!("raw-{n}")),
+                source: "health".into(),
+                input_mode: InputMode::WalCopy,
+            })
+            .unwrap();
+            assert_eq!(report.rows, 3);
+        }
+        assert_eq!(inbox_fingerprint(&inbox), before);
+        assert!(!sidecar_path(&path, "-wal").exists());
+        assert!(!sidecar_path(&path, "-shm").exists());
+    }
+
+    #[test]
+    fn deleted_checkpointed_row_in_wal_loads() {
+        let tmp = tempfile_dir();
+        let path = tmp.join("live.db");
+        let conn = Connection::open(&path).unwrap();
+        conn.pragma_update(None, "journal_mode", "WAL").unwrap();
+        conn.pragma_update(None, "wal_autocheckpoint", "0").unwrap();
+        metrics_schema(&conn);
+        insert_seq(&conn, 0, 4, "own");
+        conn.execute_batch("PRAGMA wal_checkpoint(TRUNCATE)").unwrap();
+        conn.execute("DELETE FROM metrics WHERE id = 'own-000001'", [])
+            .unwrap();
+        let db_bytes = fs::read(&path).unwrap();
+        let wal_bytes = fs::read(sidecar_path(&path, "-wal")).unwrap();
+        assert!(wal_bytes.len() > 32, "delete should live in the wal");
+        drop(conn);
+        let inbox = tmp.join("inbox");
+        fs::create_dir(&inbox).unwrap();
+        let db = inbox.join("data.db");
+        fs::write(&db, db_bytes).unwrap();
+        fs::write(sidecar_path(&db, "-wal"), wal_bytes).unwrap();
+        let before = inbox_fingerprint(&inbox);
+        let report = load(&LoadConfig {
+            sqlite_path: db,
+            raw_root: tmp.join("raw"),
+            source: "health".into(),
+            input_mode: InputMode::WalCopy,
+        })
+        .unwrap();
+        assert_eq!(report.rows, 3);
+        assert_eq!(parquet_values(&report.files[0]), vec![0, 2, 3]);
+        assert_eq!(inbox_fingerprint(&inbox), before);
+    }
+
+    #[test]
+    fn planted_shm_lock_does_not_hide_rows() {
+        let tmp = tempfile_dir();
+        let path = tmp.join("live.db");
+        let conn = Connection::open(&path).unwrap();
+        conn.pragma_update(None, "journal_mode", "WAL").unwrap();
+        conn.pragma_update(None, "wal_autocheckpoint", "0").unwrap();
+        metrics_schema(&conn);
+        insert_seq(&conn, 0, 8, "own");
+        let stale_shm = fs::read(sidecar_path(&path, "-shm")).unwrap();
+        insert_seq(&conn, 8, 16, "own");
+        let db_bytes = fs::read(&path).unwrap();
+        let wal_bytes = fs::read(sidecar_path(&path, "-wal")).unwrap();
+        let fresh_shm = fs::read(sidecar_path(&path, "-shm")).unwrap();
+        assert_ne!(stale_shm, fresh_shm, "stale shm matched the full wal");
+        drop(conn);
+
+        let inbox = tmp.join("inbox");
+        fs::create_dir(&inbox).unwrap();
+        let db = inbox.join("data.db");
+        fs::write(&db, &db_bytes).unwrap();
+        fs::write(sidecar_path(&db, "-wal"), &wal_bytes).unwrap();
+        let shm = sidecar_path(&db, "-shm");
+        fs::write(&shm, &stale_shm).unwrap();
+        let holder = LockHolder(hold_shm_read_lock(&shm));
+        let before = inbox_fingerprint(&inbox);
+        let report = load(&LoadConfig {
+            sqlite_path: db,
+            raw_root: tmp.join("raw"),
+            source: "health".into(),
+            input_mode: InputMode::WalCopy,
+        })
+        .unwrap();
+        assert_eq!(report.rows, 16);
+        assert_eq!(
+            parquet_values(&report.files[0]),
+            (0..16).collect::<Vec<_>>()
+        );
+        assert_eq!(inbox_fingerprint(&inbox), before);
+        assert_eq!(fs::read(&shm).unwrap(), stale_shm);
+        drop(holder);
+    }
+
+    struct LockHolder(i32);
+    impl Drop for LockHolder {
+        fn drop(&mut self) {
+            release_holder(self.0);
+        }
+    }
+
+    #[test]
+    fn snapshot_mode_refuses_sidecars_and_loads_one_file() {
+        let tmp = tempfile_dir();
+        let inbox = tmp.join("inbox");
+        fs::create_dir(&inbox).unwrap();
+        let path = inbox.join("data.db");
+        let conn = Connection::open(&path).unwrap();
+        metrics_schema(&conn);
+        insert_seq(&conn, 0, 2, "own");
+        drop(conn);
+        let before = inbox_fingerprint(&inbox);
+        let report = load(&LoadConfig {
+            sqlite_path: path.clone(),
+            raw_root: tmp.join("raw-ok"),
+            source: "health".into(),
+            input_mode: InputMode::Snapshot,
+        })
+        .unwrap();
+        assert_eq!(report.rows, 2);
+        assert_eq!(inbox_fingerprint(&inbox), before);
+        fs::write(sidecar_path(&path, "-wal"), b"").unwrap();
+        let err = load(&LoadConfig {
+            sqlite_path: path,
+            raw_root: tmp.join("raw-no"),
+            source: "health".into(),
+            input_mode: InputMode::Snapshot,
+        })
+        .unwrap_err();
+        assert!(err.to_string().contains("refuses sidecar"), "{err}");
+        assert_eq!(dir_parquet_count(&tmp.join("raw-no")), 0);
+    }
+
+    #[test]
+    fn sweep_ignores_symlink_and_non_directory() {
+        let tmp = tempfile_dir();
+        let runtime = tmp.join("run");
+        fs::create_dir(&runtime).unwrap();
+        let mine = runtime.join("warehouse-sqlite-mine");
+        fs::create_dir(&mine).unwrap();
+        fs::write(mine.join("x"), b"x").unwrap();
+        let victim = tmp.join("victim");
+        fs::create_dir(&victim).unwrap();
+        fs::write(victim.join("secret"), b"keep").unwrap();
+        std::os::unix::fs::symlink(&victim, runtime.join("warehouse-sqlite-link")).unwrap();
+        fs::write(runtime.join("warehouse-sqlite-notdir"), b"file").unwrap();
+        fs::create_dir(runtime.join("keep-me")).unwrap();
+        let foreign = runtime.join("warehouse-sqlite-foreign");
+        fs::create_dir(&foreign).unwrap();
+        fs::write(foreign.join("x"), b"other").unwrap();
+        let foreign_c = std::ffi::CString::new(foreign.to_str().unwrap()).unwrap();
+        let chowned = unsafe { libc::chown(foreign_c.as_ptr(), 65534, 65534) };
+        sweep_owned_snapshots(&runtime);
+        assert!(!mine.exists(), "owned snapshot dir should be removed");
+        let link = fs::symlink_metadata(runtime.join("warehouse-sqlite-link")).unwrap();
+        assert!(link.file_type().is_symlink());
+        assert_eq!(fs::read(victim.join("secret")).unwrap(), b"keep");
+        assert_eq!(fs::read(runtime.join("warehouse-sqlite-notdir")).unwrap(), b"file");
+        assert!(runtime.join("keep-me").is_dir());
+        if chowned == 0 {
+            assert!(foreign.exists(), "another user's directory was removed");
+            assert_eq!(fs::read(foreign.join("x")).unwrap(), b"other");
+        }
+    }
+
+    fn hold_shm_read_lock(path: &Path) -> i32 {
+        let c_path = std::ffi::CString::new(path.to_str().unwrap()).unwrap();
+        let pid = unsafe { libc::fork() };
+        assert!(pid >= 0, "fork failed");
+        if pid == 0 {
+            unsafe {
+                let fd = libc::open(c_path.as_ptr(), libc::O_RDWR);
+                if fd < 0 {
+                    libc::_exit(2);
+                }
+                let mut lock = libc::flock {
+                    l_type: libc::F_RDLCK as i16,
+                    l_whence: libc::SEEK_SET as i16,
+                    l_start: 128,
+                    l_len: 1,
+                    l_pid: 0,
+                };
+                if libc::fcntl(fd, libc::F_SETLK, &mut lock) != 0 {
+                    libc::_exit(3);
+                }
+                libc::pause();
+                libc::_exit(0);
+            }
+        }
+        std::thread::sleep(std::time::Duration::from_millis(20));
+        let mut probe = libc::flock {
+            l_type: libc::F_WRLCK as i16,
+            l_whence: libc::SEEK_SET as i16,
+            l_start: 128,
+            l_len: 1,
+            l_pid: 0,
+        };
+        let file = File::open(path).unwrap();
+        let rc = unsafe { libc::fcntl(file.as_raw_fd(), libc::F_GETLK, &mut probe) };
+        assert_eq!(rc, 0, "F_GETLK failed");
+        assert_ne!(probe.l_type, libc::F_UNLCK as i16, "child did not hold the shm lock");
+        pid
+    }
+
+    fn release_holder(pid: i32) {
+        unsafe {
+            libc::kill(pid, libc::SIGTERM);
+            libc::waitpid(pid, std::ptr::null_mut(), 0);
+        }
     }
 
     fn dir_parquet_count(root: &Path) -> usize {

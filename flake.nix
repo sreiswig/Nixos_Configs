@@ -158,12 +158,14 @@
             machine.succeed("test \"$(systemctl show -p Result --value warehouse-load-health.service)\" = success")
             machine.succeed("test ! -e /var/lib/warehouse/inbox/health/data.db-wal")
             machine.succeed("test ! -e /var/lib/warehouse/inbox/health/data.db-shm")
+            machine.succeed("test \"$(ls -A /var/lib/warehouse/inbox/health | sort | paste -sd' ' -)\" = data.db")
             machine.succeed("install -o warehouse -g warehouse -m 0640 /dev/null /var/lib/warehouse/inbox/health/data.db-wal")
             machine.succeed("systemctl start warehouse-load-health.service")
             machine.succeed("test \"$(systemctl show -p Result --value warehouse-load-health.service)\" = success")
             machine.succeed("test -f /var/lib/warehouse/inbox/health/data.db-wal")
             machine.succeed("test ! -s /var/lib/warehouse/inbox/health/data.db-wal")
             machine.succeed("test ! -e /var/lib/warehouse/inbox/health/data.db-shm")
+            machine.succeed("test \"$(ls -A /var/lib/warehouse/inbox/health | sort | paste -sd' ' -)\" = 'data.db data.db-wal'")
             machine.succeed("systemctl start warehouse-dbt.service")
             machine.succeed("systemctl start warehouse-dbt.service")
             machine.fail("systemctl is-failed warehouse-dbt.service")
@@ -270,6 +272,41 @@
                 test "$rc" -ne 0
                 printf '%s\n' "$out" | grep -F symlink
                 test ! -e /tmp/wh-sym-raw/health
+                """
+            )
+
+            # Sweep removes only an owned real snapshot dir. A root-owned
+            # directory with the same prefix, a symlink, and the inbox stay.
+            machine.succeed(
+                r"""
+                set -eu
+                rt=/tmp/wh-sweep
+                rm -rf "$rt" /tmp/wh-sweep-victim /tmp/wh-sweep-raw
+                install -d -o warehouse -g warehouse -m 0700 "$rt"
+                install -d -o warehouse -g warehouse -m 0700 "$rt/warehouse-sqlite-mine"
+                echo mine > "$rt/warehouse-sqlite-mine/x"
+                install -d -o root -g root -m 0700 /tmp/wh-sweep-victim
+                echo keep > /tmp/wh-sweep-victim/secret
+                ln -s /tmp/wh-sweep-victim "$rt/warehouse-sqlite-link"
+                install -d -o root -g root -m 0777 "$rt/warehouse-sqlite-foreign"
+                echo keep > "$rt/warehouse-sqlite-foreign/x"
+                install -d -o warehouse -g warehouse -m 0700 "$rt/keep-me"
+                install -d -o warehouse -g warehouse -m 0700 /tmp/wh-sweep-raw
+                before=$(ls -A /var/lib/warehouse/inbox/health | sort)
+                runuser -u warehouse -- env RUNTIME_DIRECTORY="$rt" WAREHOUSE_INPUT_MODE=wal-copy \
+                  warehouse-load-health --sqlite /var/lib/warehouse/inbox/health/data.db \
+                  --raw-root /tmp/wh-sweep-raw --source health
+                echo sweep-ran
+                test ! -e "$rt/warehouse-sqlite-mine"
+                echo mine-gone
+                test -L "$rt/warehouse-sqlite-link"
+                test -f /tmp/wh-sweep-victim/secret
+                test -d "$rt/warehouse-sqlite-foreign"
+                test -f "$rt/warehouse-sqlite-foreign/x"
+                test -d "$rt/keep-me"
+                after=$(ls -A /var/lib/warehouse/inbox/health | sort)
+                test "$before" = "$after"
+                test ! -e /var/lib/warehouse/inbox/health/data.db-shm
                 """
             )
           '';

@@ -18,8 +18,14 @@ A rerun writes a new run_id. Existing raw files stay in place.
   --raw-root PATH   raw directory (default: $WAREHOUSE_DATA_DIR/raw)
   --source NAME     source folder name (default: health)
   --data-dir PATH   used when the paths above are omitted (default: /var/lib/warehouse)
+  --input-mode MODE wal-copy (default) or snapshot
 
-Environment: WAREHOUSE_SQLITE_PATH, WAREHOUSE_RAW_ROOT, WAREHOUSE_SOURCE, WAREHOUSE_DATA_DIR.
+wal-copy reads data.db and a non-empty data.db-wal from the inbox and opens
+only a private copy. An inbox -shm is not read. snapshot opens one
+rollback-journal file with immutable=1 and refuses any sidecar.
+
+Environment: WAREHOUSE_SQLITE_PATH, WAREHOUSE_RAW_ROOT, WAREHOUSE_SOURCE,
+WAREHOUSE_DATA_DIR, WAREHOUSE_INPUT_MODE.
 Flags win over environment variables.
 "
         );
