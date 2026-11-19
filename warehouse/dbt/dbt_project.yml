@@ -1,0 +1,47 @@
+name: warehouse
+version: "1.0.0"
+config-version: 2
+profile: warehouse
+
+model-paths: ["models"]
+analysis-paths: ["analyses"]
+test-paths: ["tests"]
+seed-paths: ["seeds"]
+macro-paths: ["macros"]
+snapshot-paths: ["snapshots"]
+target-path: "target"
+clean-targets:
+  - "target"
+  - "dbt_packages"
+  - "logs"
+
+vars:
+  local_tz: "America/Chicago"
+
+models:
+  warehouse:
+    staging:
+      +materialized: view
+      health:
+        +schema: health
+    intermediate:
+      +materialized: view
+      health:
+        +schema: health
+    marts:
+      +materialized: table
+      health:
+        +schema: health
+
+seeds:
+  warehouse:
+    health_kind_agg:
+      +schema: health
+      +column_types:
+        kind: varchar
+        agg_rule: varchar
+        canonical_unit: varchar
+        percent_min: double
+        percent_max: double
+        percent_allow_zero: integer
+        percent_min_exclusive: integer

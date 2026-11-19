@@ -1,0 +1,128 @@
+version: 2
+
+models:
+  - name: fct_health_daily
+    description: >
+      One row per groktor metrics.day (source_day) and kind. value is the sum
+      for additive kinds and the latest recorded_at for point-in-time kinds.
+      value_avg, value_min, and value_max describe the samples either way.
+    columns:
+      - name: metric_day_key
+        tests:
+          - not_null
+          - unique
+      - name: source_day
+        tests: [not_null]
+      - name: local_date
+        tests: [not_null]
+      - name: kind
+        tests:
+          - not_null
+          - relationships:
+              to: ref('dim_metric_kind')
+              field: kind
+          - accepted_values:
+              config:
+                severity: warn
+              values:
+                - sleep_duration_hours
+                - sleep_efficiency_pct
+                - resting_heart_rate_bpm
+                - heart_rate_variability_ms
+                - heart_rate
+                - steps
+                - active_calories_kcal
+                - exercise_minutes
+                - distance
+                - floors
+                - weight_kg
+                - body_fat_pct
+                - readiness_score
+                - spo2_pct
+                - deep_sleep
+                - light_sleep
+                - rem_sleep
+                - sleep_score
+                - stress
+                - pai
+                - vo2_max
+      - name: value
+        tests: [not_null]
+      - name: value_avg
+        tests: [not_null]
+      - name: value_min
+        tests: [not_null]
+      - name: value_max
+        tests: [not_null]
+      - name: sample_count
+        tests: [not_null]
+      - name: agg_rule
+        tests:
+          - not_null
+          - accepted_values:
+              values: ["sum", "latest"]
+      - name: unit
+        tests:
+          - not_null
+          - accepted_values:
+              config:
+                severity: warn
+              values: ["hours", "%", "bpm", "ms", "count", "kcal", "min", "kg", "score", "s", "m"]
+      - name: category
+        tests:
+          - not_null
+          - accepted_values:
+              values: ["sleep", "heart", "activity", "body", "recovery", "other"]
+
+  - name: dim_metric_kind
+    description: >
+      Metric kind dimension. Date span is source_day.
+      Only rows whose unit equals the seed canonical unit are kept.
+    columns:
+      - name: kind
+        tests:
+          - not_null
+          - unique
+          - accepted_values:
+              config:
+                severity: warn
+              values:
+                - sleep_duration_hours
+                - sleep_efficiency_pct
+                - resting_heart_rate_bpm
+                - heart_rate_variability_ms
+                - heart_rate
+                - steps
+                - active_calories_kcal
+                - exercise_minutes
+                - distance
+                - floors
+                - weight_kg
+                - body_fat_pct
+                - readiness_score
+                - spo2_pct
+                - deep_sleep
+                - light_sleep
+                - rem_sleep
+                - sleep_score
+                - stress
+                - pai
+                - vo2_max
+      - name: category
+        tests:
+          - not_null
+          - accepted_values:
+              values: ["sleep", "heart", "activity", "body", "recovery", "other"]
+      - name: unit
+        tests:
+          - not_null
+          - accepted_values:
+              config:
+                severity: warn
+              values: ["hours", "%", "bpm", "ms", "count", "kcal", "min", "kg", "score", "s", "m"]
+      - name: observation_count
+        tests: [not_null]
+      - name: first_source_day
+        tests: [not_null]
+      - name: last_source_day
+        tests: [not_null]

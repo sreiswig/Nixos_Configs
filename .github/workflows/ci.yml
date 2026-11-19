@@ -22,7 +22,15 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       # v22 (ef8a148080ab6020fd15196c2084a2eea5ff2d25) — prefer release tag over tip-of-main
       - uses: DeterminateSystems/nix-installer-action@3138316df39ed29be04236d7ffc686fa525866aa # v23
+      - name: Advertise KVM to Nix
+        run: |
+          echo "system-features = nixos-test benchmark big-parallel kvm uid-range" | sudo tee -a /etc/nix/nix.conf
+          sudo systemctl restart nix-daemon
       - run: nix flake check
+      # flake check builds checks.x86_64-linux.warehouse. This step is the
+      # explicit VM-test run (cache hit when flake check already built it).
+      - name: Warehouse NixOS VM test
+        run: nix build .#checks.x86_64-linux.warehouse --print-build-logs
 
   build-configs:
     needs: check-flake

@@ -1,0 +1,34 @@
+version: 2
+
+seeds:
+  - name: health_kind_agg
+    description: >
+      Maps a metric kind to sum (additive samples) or latest (point-in-time,
+      still storing avg/min/max). Data Architect recommendation; edit the seed
+      to override.
+    columns:
+      - name: kind
+        tests:
+          - not_null
+          - unique
+      - name: agg_rule
+        tests:
+          - not_null
+          - accepted_values:
+              values: ["sum", "latest"]
+      - name: canonical_unit
+        tests: [not_null]
+      - name: percent_min
+        description: >
+          Inclusive low bound for a percent kind, unless
+          percent_min_exclusive is 1. Empty for other kinds.
+      - name: percent_max
+        description: Inclusive high bound for a percent kind.
+      - name: percent_allow_zero
+        description: >
+          1 when 0 is a real reading (no sample) in addition to the range.
+          0 when 0 is out of range.
+      - name: percent_min_exclusive
+        description: >
+          1 when values must be strictly greater than percent_min
+          (SpO2). 0 when percent_min is inclusive.
