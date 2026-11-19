@@ -14,7 +14,7 @@ Read personal_groktor's SQLite metrics table (read-only) and append Parquet
 under <raw-root>/<source>/dt=YYYY-MM-DD/<run_id>.parquet.
 A rerun writes a new run_id. Existing raw files stay in place.
 
-  --sqlite PATH     SQLite file (default: $WAREHOUSE_DATA_DIR/inbox/health/data.db)
+  --sqlite PATH     SQLite file (default: /var/lib/warehouse-inbox/health/data.db)
   --raw-root PATH   raw directory (default: $WAREHOUSE_DATA_DIR/raw)
   --source NAME     source folder name (default: health)
   --data-dir PATH   used when the paths above are omitted (default: /var/lib/warehouse)

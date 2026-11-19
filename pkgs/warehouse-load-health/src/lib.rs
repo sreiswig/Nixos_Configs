@@ -70,9 +70,8 @@ pub struct LoadConfig {
     pub sqlite_path: PathBuf,
     pub raw_root: PathBuf,
     pub source: String,
-    /// Required owner of `data.db`. `None` means the current process uid,
-    /// which is what cargo tests and a manual run use. The unit sets
-    /// `WAREHOUSE_WRITER_USER` so this is sam's uid, not the loader uid.
+    /// Required owner of `data.db`. The unit sets this from
+    /// `WAREHOUSE_WRITER_USER`. `None` fails the load.
     pub writer_uid: Option<u32>,
 }
 
@@ -88,7 +87,7 @@ impl LoadConfig {
         let sqlite_path = take_flag(args, "--sqlite")?
             .or_else(|| std::env::var("WAREHOUSE_SQLITE_PATH").ok())
             .map(PathBuf::from)
-            .unwrap_or_else(|| data_dir.join("inbox/health/data.db"));
+            .unwrap_or_else(|| PathBuf::from("/var/lib/warehouse-inbox/health/data.db"));
 
         let raw_root = take_flag(args, "--raw-root")?
             .or_else(|| std::env::var("WAREHOUSE_RAW_ROOT").ok())
@@ -203,7 +202,11 @@ struct MetricRow {
 /// already present under `raw_root` is replaced or removed.
 pub fn load(config: &LoadConfig) -> LoadResult<LoadReport> {
     validate_source_name(&config.source)?;
-    let writer_uid = config.writer_uid.unwrap_or_else(current_uid);
+    let writer_uid = config.writer_uid.ok_or_else(|| {
+        LoadError::new(
+            "writer uid is not configured (set WAREHOUSE_WRITER_USER or WAREHOUSE_WRITER_UID)",
+        )
+    })?;
     let sqlite_path = require_sqlite(&config.sqlite_path, writer_uid)?;
     let rows = read_metrics(&sqlite_path, writer_uid)?;
     let run_id = new_run_id()?;
@@ -415,9 +418,11 @@ fn open_inbox_file(path: &Path, writer_uid: u32) -> LoadResult<File> {
         )));
     }
     let mode = opened.mode() & 0o777;
-    if mode & 0o022 != 0 {
+    // 0640 and 0440 pass. Group write and any other-access bit fail,
+    // including 0644.
+    if mode & 0o037 != 0 {
         return Err(LoadError::new(format!(
-            "refusing {} mode {mode:o} (group or other writable)",
+            "refusing {} mode {mode:o} (want 0640 or 0440)",
             path.display()
         )));
     }
@@ -1106,7 +1111,15 @@ mod tests {
             )
             .unwrap();
         }
+        tighten(&path);
         path
+    }
+
+    fn tighten(path: &Path) {
+        use std::os::unix::fs::PermissionsExt;
+        let mut perms = fs::metadata(path).unwrap().permissions();
+        perms.set_mode(0o640);
+        fs::set_permissions(path, perms).unwrap();
     }
 
     fn sample_row() -> (&'static str, &'static str, &'static str, &'static str, &'static str, f64, &'static str, &'static str)
@@ -1143,7 +1156,7 @@ mod tests {
             sqlite_path: sqlite.clone(),
             raw_root: raw.clone(),
             source: "health".into(),
-            writer_uid: None,
+            writer_uid: Some(current_uid()),
         };
         let before = fs::read(&sqlite).unwrap();
         let first = load(&config).unwrap();
@@ -1229,11 +1242,12 @@ mod tests {
              VALUES ('abc', 'steps', 'activity', '2026-07-21T12:00:00+00:00', '2026-07-21', 1e999, 'count', 'csv');",
         )
         .unwrap();
+        tighten(&path);
         let err = load(&LoadConfig {
             sqlite_path: path,
             raw_root: tmp.join("raw"),
             source: "health".into(),
-            writer_uid: None,
+            writer_uid: Some(current_uid()),
         })
         .unwrap_err();
         assert!(err.to_string().contains("not finite"), "{err}");
@@ -1257,11 +1271,12 @@ mod tests {
             );",
         )
         .unwrap();
+        tighten(&path);
         let err = load(&LoadConfig {
             sqlite_path: path,
             raw_root: tmp.join("raw"),
             source: "health".into(),
-            writer_uid: None,
+            writer_uid: Some(current_uid()),
         })
         .unwrap_err();
         assert!(err.to_string().contains("missing columns"), "{err}");
@@ -1300,11 +1315,12 @@ mod tests {
             [],
         )
         .unwrap();
+        tighten(&path);
         let report = load(&LoadConfig {
             sqlite_path: path,
             raw_root: tmp.join("raw"),
             source: "health".into(),
-            writer_uid: None,
+            writer_uid: Some(current_uid()),
         })
         .unwrap();
         assert_eq!(report.rows, 2);
@@ -1361,7 +1377,7 @@ mod tests {
             sqlite_path: link,
             raw_root: tmp.join("raw"),
             source: "health".into(),
-            writer_uid: None,
+            writer_uid: Some(current_uid()),
         })
         .unwrap_err();
         assert!(err.to_string().contains("symlink"), "{err}");
@@ -1434,7 +1450,7 @@ mod tests {
                 sqlite_path: inbox_db.clone(),
                 raw_root: raw.to_path_buf(),
                 source: "health".into(),
-                writer_uid: None,
+                writer_uid: Some(current_uid()),
             }) {
                 Ok(report) => {
                     assert!(!report.files.is_empty());
@@ -1521,7 +1537,7 @@ mod tests {
             sqlite_path: link,
             raw_root: tmp.join("raw"),
             source: "health".into(),
-            writer_uid: None,
+            writer_uid: Some(current_uid()),
         })
         .unwrap_err();
         assert!(err.to_string().contains("symlink"), "{err}");
@@ -1535,7 +1551,7 @@ mod tests {
             sqlite_path: tmp.join("missing.db"),
             raw_root: tmp.join("raw"),
             source: "health".into(),
-            writer_uid: None,
+            writer_uid: Some(current_uid()),
         })
         .unwrap_err();
         assert!(err.to_string().contains("not found"), "{err}");
@@ -1549,7 +1565,7 @@ mod tests {
             sqlite_path: sqlite,
             raw_root: tmp.join("raw"),
             source: "../raw".into(),
-            writer_uid: None,
+            writer_uid: Some(current_uid()),
         })
         .unwrap_err();
         assert!(err.to_string().contains("source name"), "{err}");
@@ -1584,7 +1600,7 @@ mod tests {
                 sqlite_path: path.clone(),
                 raw_root: tmp.join(format!("raw-{n}")),
                 source: "health".into(),
-                writer_uid: None,
+                writer_uid: Some(current_uid()),
             })
             .unwrap();
             assert_eq!(report.rows, 1);
@@ -1616,11 +1632,12 @@ mod tests {
         drop(conn);
         let _ = fs::remove_file(sidecar_path(&path, "-wal"));
         let _ = fs::remove_file(sidecar_path(&path, "-shm"));
+        tighten(&path);
         let err = load(&LoadConfig {
             sqlite_path: path,
             raw_root: tmp.join("raw"),
             source: "health".into(),
-            writer_uid: None,
+            writer_uid: Some(current_uid()),
         })
         .unwrap_err();
         assert!(err.to_string().contains("rollback-journal"), "{err}");
@@ -1640,7 +1657,7 @@ mod tests {
                 sqlite_path: path,
                 raw_root: tmp.join("raw"),
                 source: "health".into(),
-                writer_uid: None,
+                writer_uid: Some(current_uid()),
             })
             .unwrap_err();
             assert!(err.to_string().contains("sidecar"), "{suffix}: {err}");
@@ -1663,7 +1680,7 @@ mod tests {
             sqlite_path: path,
             raw_root: tmp.join("raw"),
             source: "health".into(),
-            writer_uid: None,
+            writer_uid: Some(current_uid()),
         })
         .unwrap_err();
         let msg = err.to_string();
@@ -1697,10 +1714,30 @@ mod tests {
             sqlite_path: path.clone(),
             raw_root: tmp.join("raw-mode"),
             source: "health".into(),
+            writer_uid: Some(current_uid()),
+        })
+        .unwrap_err();
+        assert!(err.to_string().contains("0640"), "{err}");
+        perms.set_mode(0o644);
+        fs::set_permissions(&path, perms.clone()).unwrap();
+        let err = load(&LoadConfig {
+            sqlite_path: path.clone(),
+            raw_root: tmp.join("raw-644"),
+            source: "health".into(),
+            writer_uid: Some(current_uid()),
+        })
+        .unwrap_err();
+        assert!(err.to_string().contains("0640"), "{err}");
+        assert_eq!(dir_parquet_count(&tmp.join("raw-644")), 0);
+        let err = load(&LoadConfig {
+            sqlite_path: path.clone(),
+            raw_root: tmp.join("raw-unset"),
+            source: "health".into(),
             writer_uid: None,
         })
         .unwrap_err();
-        assert!(err.to_string().contains("writable"), "{err}");
+        assert!(err.to_string().contains("not configured"), "{err}");
+        assert_eq!(dir_parquet_count(&tmp.join("raw-unset")), 0);
         assert_eq!(dir_parquet_count(&tmp.join("raw-mode")), 0);
 
         perms.set_mode(0o640);
@@ -1710,7 +1747,7 @@ mod tests {
             sqlite_path: path,
             raw_root: tmp.join("raw-link"),
             source: "health".into(),
-            writer_uid: None,
+            writer_uid: Some(current_uid()),
         })
         .unwrap_err();
         assert!(err.to_string().contains("hard link"), "{err}");

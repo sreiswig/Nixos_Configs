@@ -11,9 +11,8 @@ The warehouse opens no port and changes no firewall rule. Reach it by SSH over T
 State directory: `/var/lib/warehouse` (`services.dataWarehouse.dataDir`).
 
 ```text
-/var/lib/warehouse/
+/var/lib/warehouse/                          # StateDirectory, warehouse:warehouse 0750
   raw/health/dt=YYYY-MM-DD/<run_id>.parquet   # append-only
-  inbox/health/data.db                         # personal_groktor SQLite drop
   dbt/project/                                 # copy of warehouse/dbt each build
   dbt/profiles.yml                             # generated, points at warehouse.duckdb
   dbt/target/                                  # dbt artifacts
@@ -21,17 +20,19 @@ State directory: `/var/lib/warehouse` (`services.dataWarehouse.dataDir`).
   export/                                      # empty; optional faster-restore dump
   home/                                        # HOME for the warehouse user
   .write.lock                                  # flock for the single DuckDB writer
+/var/lib/warehouse-inbox/                      # root:warehouse 0750, outside StateDirectory
+  health/data.db                               # personal_groktor snapshot
 ```
 
 | Path | Mode | Owner |
 |------|------|--------|
 | `/var/lib/warehouse` | `0750` | `warehouse:warehouse` |
-| `raw/` | `0750` | `warehouse:warehouse` |
-| `inbox/` | `0750` | `root:warehouse` (the loader cannot rename `inbox/health`) |
-| `inbox/health/` | `3750` | `sam:warehouse` (setgid and sticky; writer owns it; loader group can read and traverse) |
+| `raw/`, `dbt/`, `home/`, `export/` | `0750` | `warehouse:warehouse` |
+| `/var/lib/warehouse-inbox` | `0750` | `root:warehouse` |
+| `/var/lib/warehouse-inbox/health` | `3750` | `sam:warehouse` (setgid and sticky) |
 | `warehouse.duckdb` | `0640` | created by the dbt unit (`UMask=0027`) |
 
-`sam` is in group `warehouse`, so `sam` can read the data dir. `inbox/` is mode `0750` and owned by `root:warehouse`, so the loader cannot rename `inbox/health`. `sam` owns `inbox/health` and is the only user who can create or rename files there. The directory is mode `3750`: setgid so a file `sam` creates inherits group `warehouse`, sticky so only `sam` can replace `data.db`, and group read plus execute so the loader can traverse it. The loader runs as `warehouse` and only needs to read the snapshot. Raw files stay immutable: the loader never rewrites or deletes an existing Parquet file. A second run writes a new `<run_id>.parquet` under the same `dt=` directory. Staging dedupes.
+`sam` is in group `warehouse`, so `sam` can read the data dir. `/var/lib/warehouse` stays the systemd `StateDirectory` and is owned by `warehouse`. The inbox is `/var/lib/warehouse-inbox`, mode `0750`, owner `root:warehouse`. Its parent is `/var/lib`, which root owns, so the warehouse user cannot rename the inbox directory or plant a symlink in its place. systemd-tmpfiles creates `/var/lib/warehouse-inbox` and `health/` under it. There is no activation script. `sam` owns `health/` (mode `3750`, setgid and sticky) and is the only user who can create or rename files there. Setgid makes a new file group `warehouse`. The loader runs as `warehouse` and only needs to read the snapshot. Raw files stay immutable: the loader never rewrites or deletes an existing Parquet file. A second run writes a new `<run_id>.parquet` under the same `dt=` directory. Staging dedupes.
 
 `dt` is the America/Chicago calendar date of `recorded_at` (the host timezone in `modules/common`). The daily fact buckets on groktor's `metrics.day`, stored as `source_day`. `local_date` stays on the row. Overnight sleep can make `source_day` and `local_date` disagree in either direction (the Chicago date of `recorded_at` can fall on the day before or the day after groktor's `day`). A warn-severity test flags those rows.
 
@@ -60,19 +61,19 @@ It opens personal_groktor's SQLite database read-only (`SQLITE_OPEN_READ_ONLY` a
 
 The loader rejects a missing file, a missing `metrics` table, a missing column, a non-finite value, a bad date, or a path-shaped token. It also rejects a symlink or any non-regular `data.db`. On validation failure it publishes nothing for that run. Writes go to `.<run_id>.parquet.partial`, then `fsync`, then `rename` in the same directory.
 
-The inbox file is a snapshot, not groktor's live database. Groktor keeps its own database in WAL mode. The export runs as `sam`, the only writer, and is the change in [personal_groktor PR #49](https://github.com/sreiswig/personal_groktor/pull/49). It builds one rollback-journal SQLite file at `.data.db.<random>.tmp` in `inbox/health`, mode `0640`, fsyncs it, then renames it to `data.db`. Setgid on the directory gives that file group `warehouse`, so the loader can read it. A later export renames a new temp file over the existing `data.db`. The loader never reads or deletes dotfiles or `.tmp` files.
+The inbox file is a snapshot, not groktor's live database. Groktor keeps its own database in WAL mode. The export runs as `sam`, the only writer, and is the change in [personal_groktor PR #49](https://github.com/sreiswig/personal_groktor/pull/49). It builds one rollback-journal SQLite file at `.data.db.<random>.tmp` in `/var/lib/warehouse-inbox/health`, mode `0640`, fsyncs it, then renames it to `data.db`. Setgid on the directory gives that file group `warehouse`, so the loader can read it. A later export renames a new temp file over the existing `data.db`. The loader never reads or deletes dotfiles or `.tmp` files.
 
-The loader is read-only on the inbox. It `lstat`s `data.db`, opens it with `O_NOFOLLOW`, and checks that the fd is the same regular file. The owner must be the uid of `WAREHOUSE_WRITER_USER` (the unit sets this to `sam`), the mode must not be group or other writable, and the link count must be 1. Header bytes 18 and 19 must both be `1` (rollback journal). `2` is WAL mode and fails the load. If `data.db-wal`, `data.db-shm`, or `data.db-journal` exists beside `data.db`, the load fails and publishes nothing. The loader copies the verified fd into a mode `0600` file in a mode `0700` directory (`RUNTIME_DIRECTORY` when the unit sets one, otherwise a private temp directory) and opens only that copy with `immutable=1` and `SQLITE_OPEN_READ_ONLY`. SQLite reopens by path, so it must not be given the inbox path. After the copy, the loader `fstat`s the source fd again and fails if the inode, size, or mtime changed. `PRAGMA schema_version` and `PRAGMA integrity_check` then have to succeed. Anything other than `integrity_check` = `ok` fails the load and publishes nothing.
+The loader is read-only on the inbox. It `lstat`s `data.db`, opens it with `O_NOFOLLOW`, and checks that the fd is the same regular file. `WAREHOUSE_WRITER_USER` or `WAREHOUSE_WRITER_UID` must be set. The unit sets `WAREHOUSE_WRITER_USER=sam`. A load with neither variable set fails and publishes nothing. The owner must be that uid, the mode must be `0640` or `0440` (no group write and no other access, so `0644` fails), and the link count must be 1. Header bytes 18 and 19 must both be `1` (rollback journal). `2` is WAL mode and fails the load. If `data.db-wal`, `data.db-shm`, or `data.db-journal` exists beside `data.db`, the load fails and publishes nothing. The loader copies the verified fd into a mode `0600` file in a mode `0700` directory (`RUNTIME_DIRECTORY` when the unit sets one, otherwise a private temp directory) and opens only that copy with `immutable=1` and `SQLITE_OPEN_READ_ONLY`. SQLite reopens by path, so it must not be given the inbox path. After the copy, the loader `fstat`s the source fd again and fails if the inode, size, or mtime changed. `PRAGMA schema_version` and `PRAGMA integrity_check` then have to succeed. Anything other than `integrity_check` = `ok` fails the load and publishes nothing.
 
 The private copy is removed when the load returns, including a Rust error. `SIGKILL` does not run that cleanup, and neither does `SIGTERM` if the process is killed before `Drop` runs. The unit does not set `RuntimeDirectoryPreserve`, so when `warehouse-load-health` stops, including after `SIGKILL`, systemd deletes `/run/warehouse-load-health` and any snapshot still in it. A manual run uses the temp directory, and those `warehouse-sqlite-*` directories stay until you remove them. At the start of a load, if `RUNTIME_DIRECTORY` is set, the loader deletes leftover direct children of that directory whose names start with `warehouse-sqlite-`, but only when `lstat` shows a real directory owned by the loader user and `O_NOFOLLOW` opens that same inode. A symlink, a regular file, another user's directory, or any other name is left in place.
 
-Default SQLite path: `/var/lib/warehouse/inbox/health/data.db`.
+Default SQLite path: `/var/lib/warehouse-inbox/health/data.db`. The unit sets `WAREHOUSE_SQLITE_PATH` to that path. `WAREHOUSE_DATA_DIR` is still `/var/lib/warehouse` and is not the inbox.
 
 Place a copy (synthetic example):
 
 ```bash
 install -m 0640 -o sam -g warehouse \
-  /path/to/rollback-snapshot.db /var/lib/warehouse/inbox/health/data.db
+  /path/to/rollback-snapshot.db /var/lib/warehouse-inbox/health/data.db
 ```
 
 Override the path without putting secrets in the repo. On AIServer, as root:
@@ -81,7 +82,7 @@ Override the path without putting secrets in the repo. On AIServer, as root:
 install -d -m 0750 /etc/warehouse
 install -m 0400 /dev/null /etc/warehouse/health.env
 # then edit the file, still mode 0400, for example:
-# WAREHOUSE_SQLITE_PATH=/var/lib/warehouse/inbox/health/data.db
+# WAREHOUSE_SQLITE_PATH=/var/lib/warehouse-inbox/health/data.db
 ```
 
 Point the loader at it with `services.dataWarehouse.loaders.health.environmentFile = "/etc/warehouse/health.env";`. systemd reads that file as root. The unit runs as user `warehouse`.
@@ -244,14 +245,14 @@ If `raw/` has no Parquet yet, the journal shows the skip line. `ExecCondition` e
 systemctl list-timers 'warehouse-*'
 systemctl list-timers 'restic-backups-warehouse*'
 ss -tlnp | awk 'NR==1 || /LISTEN/'
-ls -ld /var/lib/warehouse /var/lib/warehouse/raw /var/lib/warehouse/inbox/health
+ls -ld /var/lib/warehouse /var/lib/warehouse/raw /var/lib/warehouse-inbox /var/lib/warehouse-inbox/health
 systemd-analyze security warehouse-dbt
 systemd-analyze security warehouse-load-health
 ```
 
-Expect the health and dbt timers. Expect no restic timer while `backup.enable` is false. `ss` should show the same listeners as before this module (no new warehouse port). `ls` should show mode `0750` for the data dir and for `inbox/` (`root:warehouse`), and mode `3750` for `inbox/health` (`sam:warehouse`, setgid and sticky). `systemd-analyze security` is the sandbox report for the dbt unit and the health loader.
+Expect the health and dbt timers. Expect no restic timer while `backup.enable` is false. `ss` should show the same listeners as before this module (no new warehouse port). `ls` should show mode `0750` `warehouse:warehouse` for `/var/lib/warehouse`, mode `0750` `root:warehouse` for `/var/lib/warehouse-inbox`, and mode `3750` `sam:warehouse` for `health/`. `systemd-tmpfiles --create` on the warehouse tmpfiles snippet should exit 0. `systemd-analyze security` is the sandbox report for the dbt unit and the health loader.
 
-Until `/var/lib/warehouse/inbox/health/data.db` exists, `warehouse-load-health.service` fails on purpose. With no Parquet under `raw/`, `warehouse-dbt.service` is skipped (`ExecCondition` exit 1) and stays inactive. Exit 255 would fail the unit.
+Until `/var/lib/warehouse-inbox/health/data.db` exists, `warehouse-load-health.service` fails on purpose. With no Parquet under `raw/`, `warehouse-dbt.service` is skipped (`ExecCondition` exit 1) and stays inactive. Exit 255 would fail the unit.
 
 ## Rollback
 
@@ -273,7 +274,7 @@ AI_Dispatch Postgres tables `token_usage` and `ai_requests`, via a read-only rol
 
 ## Open questions for Sam
 
-1. Health SQLite arrival: pull `data.db` from the laptop over Tailscale into `/var/lib/warehouse/inbox/health/data.db`, or run personal_groktor on AIServer?
+1. Health SQLite arrival: pull `data.db` from the laptop over Tailscale into `/var/lib/warehouse-inbox/health/data.db`, or run personal_groktor on AIServer?
 2. Portfolio intake: manual Fidelity CSV dropped in an inbox, or something else? Account numbers get masked to the last 4 in staging when that loader exists.
 3. Restic off-box target, and where the repo key lives. A second disk is the free option. The repo file path is `/etc/restic/warehouse-repo`. tmpfiles writes `PLACEHOLDER` there only after `backup.enable = true`, and only if the file is absent. The password file is `/etc/restic/warehouse-password` (you create it, root, mode `0400` or `0600`). Do not point either path at a Nix store path.
 4. Raw Parquet retention: keep forever, or prune after N years? Backups, once enabled, keep 7 daily / 4 weekly / 6 monthly. Say if that keep policy should change.

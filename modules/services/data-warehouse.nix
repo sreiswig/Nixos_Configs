@@ -13,6 +13,10 @@ let
   # against this nixpkgs' dbt-core and duckdb.
   warehousePython = pkgs.warehouse-python;
 
+  # Inbox is outside StateDirectory. /var/lib is root-owned, so the
+  # warehouse user cannot rename this directory.
+  inboxDir = "/var/lib/warehouse-inbox";
+
   stateDirectory =
     if hasPrefix "/var/lib/" cfg.dataDir
     then removePrefix "/var/lib/" cfg.dataDir
@@ -155,6 +159,7 @@ let
       path = [ pkgs.util-linux pkgs.coreutils ];
       environment = {
         WAREHOUSE_DATA_DIR = cfg.dataDir;
+        WAREHOUSE_SQLITE_PATH = "${inboxDir}/health/data.db";
         HOME = "${cfg.dataDir}/home";
         # Writer account. The loader resolves this to a uid at start and
         # refuses a data.db owned by anyone else. Not a hardcoded uid.
@@ -202,7 +207,8 @@ in
       type = types.str;
       default = "/var/lib/warehouse";
       description = ''
-        Warehouse state directory. Default matches systemd StateDirectory=warehouse.
+        Warehouse state directory. This matches systemd StateDirectory=warehouse,
+        which stays owned by the warehouse user. The inbox is not under it.
         Raw Parquet, the dbt project copy, and warehouse.duckdb live here.
       '';
     };
@@ -343,31 +349,18 @@ in
       warehousePython
     ];
 
-    # Layout. inbox/ is root:warehouse 0750 so the warehouse user cannot
-    # rename or replace inbox/health. inbox/health is owned by sam, the
-    # writer. Mode 3750 is setgid, sticky, owner rwx, group rx. New files
-    # inherit group warehouse, so a 0640 file sam creates is readable by
-    # the loader. The loader does not need write access.
-    # raw/ stays 0750. UMask=0027 on the units makes new files 0640.
-    #
-    # tmpfiles will not create health/ while walking from the
-    # warehouse-owned data dir into the root-owned inbox (unsafe path
-    # transition). Activation, running as root after users exist, creates
-    # that directory.
-    system.activationScripts.warehouseInbox = {
-      deps = [ "users" ];
-      text = ''
-        ${pkgs.coreutils}/bin/install -d -o root -g warehouse -m 0750 ${cfg.dataDir}/inbox
-        ${pkgs.coreutils}/bin/install -d -o sam -g warehouse -m 3750 ${cfg.dataDir}/inbox/health
-      '';
-    };
-
+    # Layout. StateDirectory /var/lib/warehouse stays warehouse-owned.
+    # The inbox is /var/lib/warehouse-inbox, outside that tree. Its parent
+    # /var/lib is root-owned, so the warehouse user cannot rename it.
+    # tmpfiles creates both inbox directories. There is no activation script.
+    # health/ is sam:warehouse 3750 (setgid and sticky). UMask=0027 makes
+    # new files 0640.
     systemd.tmpfiles.rules = [
       "d ${cfg.dataDir} 0750 warehouse warehouse - -"
       "d ${cfg.dataDir}/raw 0750 warehouse warehouse - -"
       "d ${cfg.dataDir}/raw/health 0750 warehouse warehouse - -"
-      "d ${cfg.dataDir}/inbox 0750 root warehouse - -"
-      "d ${cfg.dataDir}/inbox/health 3750 sam warehouse - -"
+      "d ${inboxDir} 0750 root warehouse - -"
+      "d ${inboxDir}/health 3750 sam warehouse - -"
       "d ${cfg.dataDir}/dbt 0750 warehouse warehouse - -"
       "d ${cfg.dataDir}/dbt/target 0750 warehouse warehouse - -"
       "d ${cfg.dataDir}/home 0750 warehouse warehouse - -"
@@ -409,7 +402,7 @@ in
           set -eu
           data="${cfg.dataDir}"
           mkdir -p "$data/home/cache" "$data/dbt/target" "$data/raw/health" \
-            "$data/inbox/health" "$data/export"
+            "$data/export"
           # A previous run may have copied the Nix store tree with mode 555/444.
           # chmod before rm, and do not preserve those modes on the new copy.
           if [ -e "$data/dbt/project" ]; then

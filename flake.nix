@@ -122,46 +122,70 @@
             machine.succeed("test \"$(systemctl show -p Result --value restic-backups-warehouse.service)\" = exec-condition")
             machine.succeed("test \"$(systemctl show -p Result --value warehouse-restic-check.service)\" = exec-condition")
 
-            # Parent inbox/ is root:warehouse 0750. The warehouse user cannot
-            # rename inbox/health. health/ stays 3750 sam:warehouse.
-            machine.succeed("stat -c '%a %U %G' /var/lib/warehouse/inbox | grep -qx '750 root warehouse'")
-            machine.succeed("stat -c '%a %U %G' /var/lib/warehouse/inbox/health | grep -qx '3750 sam warehouse'")
-            machine.succeed("install -d -o sam -g warehouse -m 3750 /var/lib/warehouse/inbox/health")
+            # StateDirectory stays warehouse-owned. The inbox is outside it.
+            # tmpfiles exits 0. warehouse cannot rename or plant under it.
+            machine.succeed("stat -c '%a %U %G' /var/lib/warehouse | grep -qx '750 warehouse warehouse'")
+            machine.succeed("stat -c '%a %U %G' /var/lib/warehouse-inbox | grep -qx '750 root warehouse'")
+            machine.succeed("stat -c '%a %U %G' /var/lib/warehouse-inbox/health | grep -qx '3750 sam warehouse'")
             machine.succeed(
-                "sqlite3 /var/lib/warehouse/inbox/health/data.db "
+                r"""
+                set -eu
+                conf=$(grep -l inbox/health /etc/tmpfiles.d/* | head -1)
+                systemd-tmpfiles --create "$conf"
+                if runuser -u warehouse -- ln -sfn /tmp /var/lib/warehouse-inbox; then
+                  echo "warehouse replaced inbox with a symlink"
+                  exit 1
+                fi
+                if runuser -u warehouse -- mv /var/lib/warehouse-inbox /var/lib/warehouse-inbox.moved; then
+                  echo "warehouse renamed inbox"
+                  exit 1
+                fi
+                if runuser -u warehouse -- mkdir /var/lib/warehouse-inbox/health.evil; then
+                  echo "warehouse created a directory in inbox"
+                  exit 1
+                fi
+                if runuser -u warehouse -- mv /var/lib/warehouse-inbox/health /var/lib/warehouse-inbox/health.orig; then
+                  echo "warehouse renamed inbox/health"
+                  exit 1
+                fi
+                """
+            )
+            machine.succeed("install -d -o sam -g warehouse -m 3750 /var/lib/warehouse-inbox/health")
+            machine.succeed(
+                "sqlite3 /var/lib/warehouse-inbox/health/data.db "
                 + "\"CREATE TABLE metrics (id TEXT PRIMARY KEY, kind TEXT NOT NULL, category TEXT NOT NULL, recorded_at TEXT NOT NULL, day TEXT NOT NULL, value REAL NOT NULL, unit TEXT NOT NULL, source TEXT NOT NULL, raw_name TEXT, notes TEXT);\""
             )
             machine.succeed(
-                "sqlite3 /var/lib/warehouse/inbox/health/data.db "
+                "sqlite3 /var/lib/warehouse-inbox/health/data.db "
                 + "\"INSERT INTO metrics VALUES ('11111111-1111-4111-8111-111111111111', 'resting_heart_rate_bpm', 'heart', '2026-07-21T15:00:00+00:00', '2026-07-21', 58, 'beats per minute', 'Apple Watch', 'Apple Watch', 'route a/b');\""
             )
             machine.succeed(
-                "sqlite3 /var/lib/warehouse/inbox/health/data.db "
+                "sqlite3 /var/lib/warehouse-inbox/health/data.db "
                 + "\"INSERT INTO metrics VALUES ('22222222-2222-4222-8222-222222222222', 'body_fat_pct', 'body', '2026-07-21T15:00:00+00:00', '2026-07-21', 0, '%', 'scale', 'scale', NULL);\""
             )
             machine.succeed(
-                "sqlite3 /var/lib/warehouse/inbox/health/data.db "
+                "sqlite3 /var/lib/warehouse-inbox/health/data.db "
                 + "\"INSERT INTO metrics VALUES ('33333333-3333-4333-8333-333333333333', 'sleep_efficiency_pct', 'sleep', '2026-07-21T15:00:00+00:00', '2026-07-21', 1, '%', 'band', 'band', NULL);\""
             )
             machine.succeed(
-                "sqlite3 /var/lib/warehouse/inbox/health/data.db "
+                "sqlite3 /var/lib/warehouse-inbox/health/data.db "
                 + "\"INSERT INTO metrics VALUES ('44444444-4444-4444-8444-444444444444', 'spo2_pct', 'body', '2026-07-21T15:00:00+00:00', '2026-07-21', 98, '%', 'band', 'band', NULL);\""
             )
-            machine.succeed("chown sam:warehouse /var/lib/warehouse/inbox/health/data.db")
-            machine.succeed("chmod 0640 /var/lib/warehouse/inbox/health/data.db")
-            machine.succeed("cp -a /var/lib/warehouse/inbox/health/data.db /tmp/good-snapshot.db")
+            machine.succeed("chown sam:warehouse /var/lib/warehouse-inbox/health/data.db")
+            machine.succeed("chmod 0640 /var/lib/warehouse-inbox/health/data.db")
+            machine.succeed("cp -a /var/lib/warehouse-inbox/health/data.db /tmp/good-snapshot.db")
             machine.succeed("systemctl start warehouse-load-health.service")
             machine.succeed("test \"$(systemctl show -p Result --value warehouse-load-health.service)\" = success")
-            machine.succeed("test \"$(ls -A /var/lib/warehouse/inbox/health | sort | paste -sd' ' -)\" = data.db")
+            machine.succeed("test \"$(ls -A /var/lib/warehouse-inbox/health | sort | paste -sd' ' -)\" = data.db")
             machine.succeed("systemctl start warehouse-load-health.service")
             machine.succeed("test \"$(systemctl show -p Result --value warehouse-load-health.service)\" = success")
-            machine.succeed("test \"$(ls -A /var/lib/warehouse/inbox/health | sort | paste -sd' ' -)\" = data.db")
-            machine.succeed("install -o sam -g warehouse -m 0640 /dev/null /var/lib/warehouse/inbox/health/.data.db.abcd.tmp")
+            machine.succeed("test \"$(ls -A /var/lib/warehouse-inbox/health | sort | paste -sd' ' -)\" = data.db")
+            machine.succeed("install -o sam -g warehouse -m 0640 /dev/null /var/lib/warehouse-inbox/health/.data.db.abcd.tmp")
             machine.succeed("systemctl start warehouse-load-health.service")
             machine.succeed("test \"$(systemctl show -p Result --value warehouse-load-health.service)\" = success")
-            machine.succeed("test -f /var/lib/warehouse/inbox/health/.data.db.abcd.tmp")
-            machine.succeed("test ! -s /var/lib/warehouse/inbox/health/.data.db.abcd.tmp")
-            machine.succeed("rm -f /var/lib/warehouse/inbox/health/.data.db.abcd.tmp")
+            machine.succeed("test -f /var/lib/warehouse-inbox/health/.data.db.abcd.tmp")
+            machine.succeed("test ! -s /var/lib/warehouse-inbox/health/.data.db.abcd.tmp")
+            machine.succeed("rm -f /var/lib/warehouse-inbox/health/.data.db.abcd.tmp")
             machine.succeed("systemctl start warehouse-dbt.service")
             machine.succeed("systemctl start warehouse-dbt.service")
             machine.fail("systemctl is-failed warehouse-dbt.service")
@@ -253,7 +277,7 @@
             machine.succeed(
                 r"""
                 set -eu
-                inbox=/var/lib/warehouse/inbox/health
+                inbox=/var/lib/warehouse-inbox/health
                 rm -f /tmp/wal-snapshot.db /tmp/wal-snapshot.db-wal /tmp/wal-snapshot.db-shm
                 sqlite3 /tmp/wal-snapshot.db 'PRAGMA journal_mode=WAL; CREATE TABLE t(x); INSERT INTO t VALUES (1);'
                 sqlite3 /tmp/wal-snapshot.db 'PRAGMA wal_checkpoint(TRUNCATE);'
@@ -308,12 +332,12 @@
                 "sqlite3 /tmp/secret.db "
                 + "\"INSERT INTO metrics VALUES ('secret-0', 'steps', 'activity', '2026-07-21T15:00:00+00:00', '2026-07-21', 1, 'count', 'secret', NULL, NULL);\""
             )
-            machine.succeed("ln -sfn /tmp/secret.db /var/lib/warehouse/inbox/health/secret-link.db")
+            machine.succeed("ln -sfn /tmp/secret.db /var/lib/warehouse-inbox/health/secret-link.db")
             machine.succeed(
                 r"""
                 set -eu
                 set +e
-                out=$(warehouse-load-health --sqlite /var/lib/warehouse/inbox/health/secret-link.db --raw-root /tmp/wh-sym-raw --source health 2>&1)
+                out=$(WAREHOUSE_WRITER_USER=sam warehouse-load-health --sqlite /var/lib/warehouse-inbox/health/secret-link.db --raw-root /tmp/wh-sym-raw --source health 2>&1)
                 rc=$?
                 set -e
                 test "$rc" -ne 0
@@ -328,7 +352,7 @@
             machine.succeed(
                 r"""
                 set -eu
-                inbox=/var/lib/warehouse/inbox/health
+                inbox=/var/lib/warehouse-inbox/health
                 rm -f "$inbox/secret-link.db"
                 stat -c '%a %U %G' "$inbox" | grep -qx '3750 sam warehouse'
                 export_snapshot() {
@@ -354,14 +378,22 @@
                 ids=$(duckdb -csv -c "select distinct id from read_parquet('/var/lib/warehouse/raw/health/**/*.parquet')")
                 printf '%s\n' "$ids" | grep -qx 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'
                 printf '%s\n' "$ids" | grep -qx 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb'
-                chmod 0660 "$inbox/data.db"
+                chmod 0644 "$inbox/data.db"
                 systemctl reset-failed warehouse-load-health.service || true
                 if systemctl start warehouse-load-health.service; then
-                  echo "group-writable snapshot was accepted"
+                  echo "mode 0644 snapshot was accepted"
                   exit 1
                 fi
-                journalctl -u warehouse-load-health.service --no-pager | grep -F 'writable'
+                journalctl -u warehouse-load-health.service --no-pager | grep -F '0640'
                 chmod 0640 "$inbox/data.db"
+                set +e
+                out=$(runuser -u warehouse -- env -u WAREHOUSE_WRITER_USER -u WAREHOUSE_WRITER_UID \
+                  warehouse-load-health --sqlite "$inbox/data.db" --raw-root /tmp/wh-nouid --source health 2>&1)
+                rc=$?
+                set -e
+                test "$rc" -ne 0
+                printf '%s\n' "$out" | grep -F 'not configured'
+                test ! -e /tmp/wh-nouid/health
                 ln "$inbox/data.db" "$inbox/data.db.hard"
                 systemctl reset-failed warehouse-load-health.service || true
                 if systemctl start warehouse-load-health.service; then
@@ -371,6 +403,23 @@
                 journalctl -u warehouse-load-health.service --no-pager | grep -F 'hard link'
                 rm -f "$inbox/data.db.hard"
                 test "$(ls -A "$inbox" | sort | paste -sd' ' -)" = data.db
+                # A symlink planted in place of inbox/ must not be followed
+                # by tmpfiles, and the foreign directory must keep its owner.
+                conf=$(grep -l inbox/health /etc/tmpfiles.d/* | head -1)
+                install -d -o root -g root -m 0755 /tmp/wh-foreign
+                echo keep > /tmp/wh-foreign/marker
+                mv /var/lib/warehouse-inbox /var/lib/warehouse-inbox.real
+                ln -s /tmp/wh-foreign /var/lib/warehouse-inbox
+                set +e
+                systemd-tmpfiles --create "$conf"
+                planted_rc=$?
+                set -e
+                stat -c '%a %U %G' /tmp/wh-foreign | grep -qx '755 root root'
+                test -f /tmp/wh-foreign/marker
+                rm -f /var/lib/warehouse-inbox
+                mv /var/lib/warehouse-inbox.real /var/lib/warehouse-inbox
+                test "$planted_rc" -eq 0 -o "$planted_rc" -eq 73
+                systemd-tmpfiles --create "$conf"
                 """
             )
 
@@ -391,9 +440,9 @@
                 echo keep > "$rt/warehouse-sqlite-foreign/x"
                 install -d -o warehouse -g warehouse -m 0700 "$rt/keep-me"
                 install -d -o warehouse -g warehouse -m 0700 /tmp/wh-sweep-raw
-                before=$(ls -A /var/lib/warehouse/inbox/health | sort)
+                before=$(ls -A /var/lib/warehouse-inbox/health | sort)
                 runuser -u warehouse -- env RUNTIME_DIRECTORY="$rt" WAREHOUSE_WRITER_USER=sam \
-                  warehouse-load-health --sqlite /var/lib/warehouse/inbox/health/data.db \
+                  warehouse-load-health --sqlite /var/lib/warehouse-inbox/health/data.db \
                   --raw-root /tmp/wh-sweep-raw --source health
                 echo sweep-ran
                 test ! -e "$rt/warehouse-sqlite-mine"
@@ -403,9 +452,9 @@
                 test -d "$rt/warehouse-sqlite-foreign"
                 test -f "$rt/warehouse-sqlite-foreign/x"
                 test -d "$rt/keep-me"
-                after=$(ls -A /var/lib/warehouse/inbox/health | sort)
+                after=$(ls -A /var/lib/warehouse-inbox/health | sort)
                 test "$before" = "$after"
-                test ! -e /var/lib/warehouse/inbox/health/data.db-shm
+                test ! -e /var/lib/warehouse-inbox/health/data.db-shm
                 """
             )
           '';
