@@ -24,7 +24,7 @@ $ScriptFile = $PSCommandPath
 function Write-SelfHealLog {
     param([string]$Message)
     if (-not (Test-Path $StateDir)) {
-        New-Item -ItemType Directory -Force -Path $StateDir | Out-Null
+        Protect-StateDir
     }
     if ((Test-Path $LogFile) -and ((Get-Item $LogFile).Length -gt 1MB)) {
         $tail = Get-Content -Path $LogFile -Tail 200 -ErrorAction SilentlyContinue
@@ -144,7 +144,7 @@ function Reset-Uplink {
 
 function Invoke-SelfHealCheck {
     $ErrorActionPreference = 'Continue'
-    New-Item -ItemType Directory -Force -Path $StateDir | Out-Null
+    Protect-StateDir
     $ts = Get-TailscaleState
     if (-not $ts.HasExe) {
         Write-SelfHealLog 'tailscale.exe missing; not counting an outage'
@@ -281,7 +281,7 @@ function Enable-TailscaleUnattended {
     Start-Service -Name Tailscale -ErrorAction SilentlyContinue
     $outLog = Join-Path $StateDir 'tailscale-up.out'
     $errLog = Join-Path $StateDir 'tailscale-up.err'
-    New-Item -ItemType Directory -Force -Path $StateDir | Out-Null
+    Protect-StateDir
     $proc = Start-Process -FilePath $exe -ArgumentList @('up', '--unattended') `
         -WindowStyle Hidden -PassThru -RedirectStandardOutput $outLog -RedirectStandardError $errLog
     if (-not $proc.WaitForExit(25000)) {
@@ -324,6 +324,147 @@ function Enable-RdpOverTailscale {
     }
 }
 
+function Protect-StateDir {
+    # ProgramData grants Users create-files. A non-admin who pre-creates this
+    # folder would own the script SYSTEM runs and the reboot counter files.
+    # S-1-5-18 is SYSTEM. S-1-5-32-544 is BUILTIN\Administrators.
+    New-Item -ItemType Directory -Force -Path $StateDir | Out-Null
+    & icacls.exe $StateDir /setowner '*S-1-5-32-544' /T /C | Out-Null
+    if ($LASTEXITCODE -ne 0) { throw "icacls /setowner failed for $StateDir (exit $LASTEXITCODE)" }
+    & icacls.exe $StateDir /inheritance:r /grant:r '*S-1-5-18:(OI)(CI)F' '*S-1-5-32-544:(OI)(CI)F' /C | Out-Null
+    if ($LASTEXITCODE -ne 0) { throw "icacls ACL replace failed for $StateDir (exit $LASTEXITCODE)" }
+    $children = @(Get-ChildItem -LiteralPath $StateDir -Force -ErrorAction SilentlyContinue)
+    if ($children.Count -gt 0) {
+        & icacls.exe "$StateDir\*" /reset /T /C | Out-Null
+        if ($LASTEXITCODE -ne 0) { throw "icacls /reset failed for $StateDir (exit $LASTEXITCODE)" }
+    }
+}
+
+function Set-SshdDirective {
+    param(
+        [string]$Text,
+        [string]$Name,
+        [string]$Value
+    )
+    $line = "$Name $Value"
+    # Do not consume the line break, so a second run does not rewrite the file.
+    $pattern = '(?im)^[ \t]*' + [regex]::Escape($Name) + '[ \t]+[^\r\n]*'
+    if ([regex]::IsMatch($Text, $pattern)) {
+        return [regex]::Replace($Text, $pattern, $line)
+    }
+    $matchAt = [regex]::Match($Text, '(?m)^[ \t]*Match[ \t]')
+    $insert = $line + "`r`n"
+    if ($matchAt.Success) {
+        return $Text.Insert($matchAt.Index, $insert)
+    }
+    if ($Text.Length -gt 0 -and -not $Text.EndsWith("`n")) {
+        $Text += "`r`n"
+    }
+    return $Text + $insert
+}
+
+function Set-SshdKeysOnlyText {
+    param(
+        [string]$Text,
+        [bool]$IncludeKbdInteractive
+    )
+    $directives = @(
+        @{ Name = 'PasswordAuthentication'; Value = 'no' },
+        @{ Name = 'PubkeyAuthentication'; Value = 'yes' }
+    )
+    if ($IncludeKbdInteractive) {
+        $directives += @{ Name = 'KbdInteractiveAuthentication'; Value = 'no' }
+    }
+    $out = $Text
+    foreach ($pair in $directives) {
+        $out = Set-SshdDirective -Text $out -Name $pair.Name -Value $pair.Value
+    }
+    return $out
+}
+
+function Set-OpenSshKeysOnly {
+    # Win32-OpenSSH defaults to PasswordAuthentication yes. Switch only after an
+    # admin public key is present, and roll back if sshd -t rejects the file,
+    # so this run cannot lock out SSH.
+    $sshDir = Join-Path $env:ProgramData 'ssh'
+    $keys = Join-Path $sshDir 'administrators_authorized_keys'
+    $config = Join-Path $sshDir 'sshd_config'
+    if (-not (Test-Path -LiteralPath $keys)) {
+        Write-Warning 'OpenSSH password login stays on until C:\ProgramData\ssh\administrators_authorized_keys contains a public key. Add one, then re-run this script.'
+        return
+    }
+    $hasKey = $false
+    foreach ($line in @(Get-Content -LiteralPath $keys -ErrorAction SilentlyContinue)) {
+        $trim = $line.Trim()
+        if ($trim.Length -eq 0 -or $trim.StartsWith('#')) { continue }
+        if ($trim -match '(^|\s)(ssh-(ed25519|rsa|dss)|ecdsa-sha2-|sk-ssh-|sk-ecdsa-)\S*\s+\S+') {
+            $hasKey = $true
+            break
+        }
+    }
+    if (-not $hasKey) {
+        Write-Warning 'administrators_authorized_keys has no public key. OpenSSH password login stays on. Add a key, then re-run this script.'
+        return
+    }
+    if (-not (Test-Path -LiteralPath $config)) {
+        Write-Warning "sshd_config not found at $config. OpenSSH password login stays on."
+        return
+    }
+    $sshd = Join-Path $env:SystemRoot 'System32\OpenSSH\sshd.exe'
+    if (-not (Test-Path -LiteralPath $sshd)) {
+        $cmd = Get-Command sshd -ErrorAction SilentlyContinue
+        if ($cmd -and $cmd.Source) { $sshd = $cmd.Source } else {
+            Write-Warning 'sshd.exe not found. OpenSSH password login stays on.'
+            return
+        }
+    }
+    # OpenSSH ignores this file when Users can write it. Owner is Administrators
+    # so the account that created the key cannot grant itself write again.
+    & icacls.exe $keys /setowner '*S-1-5-32-544' /C | Out-Null
+    if ($LASTEXITCODE -ne 0) {
+        Write-Warning 'Could not take ownership of administrators_authorized_keys. Password login stays on.'
+        return
+    }
+    & icacls.exe $keys /inheritance:r /grant:r '*S-1-5-18:F' '*S-1-5-32-544:F' /C | Out-Null
+    if ($LASTEXITCODE -ne 0) {
+        Write-Warning 'Could not restrict administrators_authorized_keys to SYSTEM and Administrators. Password login stays on.'
+        return
+    }
+    $original = [System.IO.File]::ReadAllText($config)
+    $withKbd = Set-SshdKeysOnlyText -Text $original -IncludeKbdInteractive $true
+    $passwordOnly = Set-SshdKeysOnlyText -Text $original -IncludeKbdInteractive $false
+    if ($withKbd -eq $original) {
+        Write-Output 'OpenSSH already keys-only (PasswordAuthentication no, PubkeyAuthentication yes).'
+        return
+    }
+    $utf8 = New-Object System.Text.UTF8Encoding $false
+    try {
+        [System.IO.File]::WriteAllText($config, $withKbd, $utf8)
+        & $sshd -t -f $config
+        $applied = $withKbd
+        # Older Win32-OpenSSH rejects KbdInteractiveAuthentication. Keep
+        # PasswordAuthentication no rather than rolling the whole change back.
+        if ($LASTEXITCODE -ne 0) {
+            [System.IO.File]::WriteAllText($config, $passwordOnly, $utf8)
+            & $sshd -t -f $config
+            if ($LASTEXITCODE -ne 0) { throw "sshd -t exited $LASTEXITCODE" }
+            $applied = $passwordOnly
+        }
+        if ($applied -eq $original) {
+            Write-Output 'OpenSSH already keys-only (PasswordAuthentication no, PubkeyAuthentication yes).'
+            return
+        }
+        Restart-Service -Name sshd -ErrorAction Stop
+        Write-Output 'OpenSSH: PasswordAuthentication no; public-key login stays on.'
+    } catch {
+        try { [System.IO.File]::WriteAllText($config, $original, $utf8) } catch {
+            Write-Warning "Could not restore sshd_config: $($_.Exception.Message)"
+        }
+        Write-Warning "OpenSSH keys-only change rolled back: $($_.Exception.Message)"
+        try { Start-Service -Name sshd -ErrorAction SilentlyContinue } catch { }
+    }
+}
+
 function Enable-OpenSshOverTailscale {
     param([bool]$Tighten)
     Write-Output 'OpenSSH Server'
@@ -339,6 +480,7 @@ function Enable-OpenSshOverTailscale {
     }
     Set-Service -Name sshd -StartupType Automatic -ErrorAction SilentlyContinue
     Start-Service -Name sshd -ErrorAction SilentlyContinue
+    Set-OpenSshKeysOnly
     Set-TailscaleFirewallRule -DisplayName 'OpenSSH over Tailscale' -Port 22
     if ($Tighten) {
         Get-NetFirewallRule -Name 'OpenSSH-Server-In-TCP' -ErrorAction SilentlyContinue | Disable-NetFirewallRule
@@ -374,12 +516,15 @@ function Register-SelfHealTask {
     $dest = Join-Path $StateDir 'remote-hardening.ps1'
     $src = $ScriptFile
     if (-not $src) { throw 'Cannot locate this script path to install the scheduled task. Run it with -File.' }
-    New-Item -ItemType Directory -Force -Path $StateDir | Out-Null
+    Protect-StateDir
     $srcFull = [System.IO.Path]::GetFullPath($src)
     $destFull = [System.IO.Path]::GetFullPath($dest)
     if ($srcFull -ne $destFull) {
         Copy-Item -Force -Path $srcFull -Destination $destFull
     }
+    # Copy-Item keeps an existing file's ACL. Reset again so the script SYSTEM
+    # runs is not one a non-admin planted before this install.
+    Protect-StateDir
     $ps = Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
     $arg = "-NoProfile -NonInteractive -WindowStyle Hidden -ExecutionPolicy Bypass -File `"$dest`" -Check"
     $action = New-ScheduledTaskAction -Execute $ps -Argument $arg
@@ -418,7 +563,7 @@ function Install-RemoteHardening {
         throw 'Re-run from an elevated PowerShell (Run as administrator).'
     }
     $ErrorActionPreference = 'Stop'
-    New-Item -ItemType Directory -Force -Path $StateDir | Out-Null
+    Protect-StateDir
     Set-NeverSleep
     Disable-NicPowerSaving
     Enable-TailscaleUnattended
@@ -439,7 +584,7 @@ function Install-RemoteHardening {
     Write-Output '  2. Disable key expiry for this node in the Tailscale admin console.'
     Write-Output '  3. Confirm the physical NIC is Ethernet and Up:  Get-NetAdapter -Physical'
     Write-Output '  4. BIOS: power on after AC loss.'
-    Write-Output '  5. Optional: put your SSH public key in the Windows authorized_keys file. Do not commit it.'
+    Write-Output '  5. SSH stays on passwords until C:\ProgramData\ssh\administrators_authorized_keys has a public key. Add one (do not commit it) and re-run this script so PasswordAuthentication is set to no. Key login stays on.'
     Write-Output '  6. From another tailnet node, test RDP and SSH before you walk away.'
 }
 

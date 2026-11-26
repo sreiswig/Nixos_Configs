@@ -61,7 +61,7 @@ When the module is on it also:
 
 - requires `services.tailscale.enable` (assertion). The NixOS module wants `tailscaled` from `multi-user.target`, so it starts at boot
 - sets `systemd.settings.Manager.RuntimeWatchdogSec` (default `60s`) if `hardwareWatchdog` is true. systemd ignores this when no hardware watchdog exists. No watchdog kernel module is loaded
-- keeps sshd enabled, not socket-activated, and allows **TCP 22 and 3389 on `tailscale0`**. AIServer already runs xrdp and OpenSSH; LAN firewall openings are unchanged
+- keeps sshd enabled, not socket-activated, and allows **TCP 22 and 3389 on `tailscale0`**. AIServer runs xrdp and OpenSSH with `openFirewall = false`, so those ports are not opened on the LAN. `tailscale0` is a trusted interface, so SSH and Remmina over Tailscale still work
 
 ### Apply
 

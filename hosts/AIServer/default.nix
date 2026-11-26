@@ -189,11 +189,12 @@ in {
   boot.initrd.kernelModules = [ "amdgpu" ];
 
   # XRDP for Remmina (Plasma X11 session; separate from any local SDDM login).
-  # my-network-self-heal also allows TCP 3389 on tailscale0 so this stays reachable
-  # on the tailnet. sshd is not socket-activated (startWhenNeeded = false below).
+  # LAN :3389 stays closed. tailscale0 is a trusted interface, and
+  # my-network-self-heal also allows TCP 3389 on that interface.
+  # sshd is not socket-activated (startWhenNeeded = false below).
   services.xrdp = {
     enable = true;
-    openFirewall = true;
+    openFirewall = false;
     defaultWindowManager = "startplasma-x11";
   };
 
@@ -273,16 +274,18 @@ in {
 
   services.tailscale.permitCertUid = "caddy";
 
-  # SSH on all interfaces (firewall opens 22). tailscale0 is trusted below,
+  # sshd listens on all interfaces, but the firewall does not open 22 on the LAN.
+  # tailscale0 is trusted below, and my-network-self-heal allows TCP 22 there,
   # so MagicDNS / Tailscale IP SSH works once tailscale-up has succeeded.
-  # Keys only: PasswordAuthentication=false matches modules/common (mkDefault).
-  # Do not re-enable password SSH on a LAN-adjacent always-on box.
+  # Keys only. KbdInteractiveAuthentication defaults to true on NixOS; with
+  # UsePAM that still prompts for a password when PasswordAuthentication is false.
   services.openssh = {
     enable = true;
     startWhenNeeded = false;
-    openFirewall = true;
+    openFirewall = false;
     settings = {
       PasswordAuthentication = false;
+      KbdInteractiveAuthentication = false;
       PermitRootLogin = "prohibit-password";
       UseDns = false;
       X11Forwarding = false;
@@ -361,10 +364,12 @@ in {
     }];
   };
 
-  # 22/3389 are opened globally by OpenSSH/xrdp.openFirewall.
+  # 22/3389 are not opened on LAN or WAN (openssh/xrdp openFirewall = false).
+  # tailscale0 is trusted (the path until Dispatch has real auth), and
+  # my-network-self-heal allows TCP 22 and 3389 on that interface, so SSH and
+  # Remmina over Tailscale still work.
   # Dispatch API stays on 127.0.0.1:8000; reach it via Caddy on the Tailnet
   # (https://dispatch.tail93ec7d.ts.net/api) — do not open :8000 on LAN ethernet.
-  # trustedInterfaces: tailscale0 is the trusted path until Dispatch has real auth.
   networking.firewall.trustedInterfaces = [ "tailscale0" ];
 
   users.users.sam.packages = with pkgs; [
