@@ -291,7 +291,7 @@ in {
     appName = "AIServer Code Hub";
     database.type = "sqlite3";
     settings.server = {
-      DOMAIN = "aiserver.tail93ec7d.ts.net";
+      # Gitea 28 ignores [server] DOMAIN; the public host comes from ROOT_URL.
       ROOT_URL = "https://aiserver.tail93ec7d.ts.net/git/";
       HTTP_ADDR = "127.0.0.1";
       HTTP_PORT = 3001;
