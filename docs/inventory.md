@@ -21,7 +21,7 @@ External machines (Spark, Windows) live here only until they have a flake host.
 
 ## Hostname ↔ flake attr
 
-See root `Makefile` for rebuild mapping (`AI_Server` → `AIServer`, `queennas` → `dad_nas`, etc.).
+See `lib/host_flake.sh` (called by the root `Makefile`) for rebuild mapping (`AI_Server` → `AIServer`, `queennas` → `dad_nas`, etc.). An unmapped hostname is a typed deny (`deny unknown`), not an empty flake attribute. `incus_cloud` stays unmapped: it is a template host and was never a `make switch` target.
 
 ## Apartment LAN (locked)
 
