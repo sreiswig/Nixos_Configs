@@ -40,10 +40,10 @@
 
 stdenv.mkDerivation (finalAttrs: {
   pname = "grok-bot";
-  version = "0.58.0";
+  version = "1.3.0";
 
   # Local vendor .deb checked into the flake root
-  src = ../../grok-bot_0.58.0_amd64.deb;
+  src = ../../grok-bot_1.3.0_amd64.deb;
 
   nativeBuildInputs = [
     dpkg
