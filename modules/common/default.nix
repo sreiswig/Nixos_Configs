@@ -50,6 +50,9 @@
   services.openssh = {
     enable = lib.mkDefault true;
     settings.PasswordAuthentication = lib.mkDefault false;
+    # NixOS defaults this to true. With UsePAM, keyboard-interactive still
+    # prompts for a password when PasswordAuthentication is false.
+    settings.KbdInteractiveAuthentication = lib.mkDefault false;
     settings.PermitRootLogin = lib.mkDefault "no";
   };
   
